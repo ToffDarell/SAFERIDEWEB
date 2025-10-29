@@ -2,7 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Environment } from '@react-three/drei';
 import { CCTVCamera } from './models/CCTVCamera';
 import { ProcessingUnit } from './models/ProcessingUnit';
-import { MonitorScreen } from './models/MonitorScreen';
+import { Cable } from './models/Cable';
 import { Suspense } from 'react';
 
 export const Scene3D = () => {
@@ -43,9 +43,9 @@ export const Scene3D = () => {
           <gridHelper args={[20, 20, '#1A2332', '#1A2332']} position={[0, -0.49, 0]} />
           
           {/* 3D Models */}
-          <CCTVCamera position={[-3, 0, 0]} />
-          <ProcessingUnit position={[2, 0, -2]} />
-          <MonitorScreen position={[3, 0, 2]} />
+          <CCTVCamera position={[-2, 0, 0]} />
+          <ProcessingUnit position={[2, 0, 0]} />
+          <Cable start={[-1.6, 3.8, 0]} end={[1.4, 0.8, 0]} />
         </Suspense>
       </Canvas>
     </div>
