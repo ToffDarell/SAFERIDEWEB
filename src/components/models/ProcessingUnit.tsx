@@ -8,113 +8,85 @@ interface ProcessingUnitProps {
 }
 
 export const ProcessingUnit = ({ position }: ProcessingUnitProps) => {
-  const ledRef = useRef<THREE.Mesh>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
   
   useFrame((state) => {
-    if (ledRef.current) {
-      const material = ledRef.current.material as THREE.MeshStandardMaterial;
-      material.emissiveIntensity = 0.8 + Math.sin(state.clock.elapsedTime * 3) * 0.2;
+    if (lightRef.current) {
+      lightRef.current.intensity = 0.8 + Math.sin(state.clock.elapsedTime * 2) * 0.2;
     }
   });
 
   return (
     <group position={position}>
-      {/* Main Raspberry Pi board */}
-      <mesh position={[0, 0.025, 0]} castShadow>
-        <boxGeometry args={[1.2, 0.05, 0.85]} />
-        <meshStandardMaterial color="#1a5f3a" roughness={0.4} metalness={0.3} />
+      {/* Main server box */}
+      <mesh position={[0, 0.6, 0]} castShadow>
+        <boxGeometry args={[1.2, 1.2, 0.4]} />
+        <meshStandardMaterial color="#1A1A1A" metalness={0.7} roughness={0.3} />
       </mesh>
       
-      {/* Circuit board details - black chips */}
-      <mesh position={[-0.2, 0.055, 0]} castShadow>
-        <boxGeometry args={[0.25, 0.03, 0.25]} />
-        <meshStandardMaterial color="#0a0a0a" roughness={0.6} metalness={0.5} />
+      {/* Front panel */}
+      <mesh position={[0, 0.6, 0.21]} castShadow>
+        <boxGeometry args={[1.15, 1.15, 0.02]} />
+        <meshStandardMaterial color="#0A0E1A" metalness={0.9} roughness={0.2} />
       </mesh>
       
-      <mesh position={[0.25, 0.055, -0.15]} castShadow>
-        <boxGeometry args={[0.3, 0.02, 0.2]} />
-        <meshStandardMaterial color="#1a1a1a" roughness={0.5} metalness={0.6} />
-      </mesh>
-      
-      {/* GPIO pins */}
-      <mesh position={[-0.35, 0.08, 0.15]} castShadow>
-        <boxGeometry args={[0.35, 0.08, 0.12]} />
-        <meshStandardMaterial color="#1f2937" roughness={0.3} metalness={0.8} />
-      </mesh>
-      
-      {/* USB ports */}
-      <mesh position={[0.61, 0.08, 0.2]} castShadow>
-        <boxGeometry args={[0.02, 0.08, 0.2]} />
-        <meshStandardMaterial color="#6b7280" roughness={0.4} metalness={0.7} />
-      </mesh>
-      
-      <mesh position={[0.61, 0.08, -0.05]} castShadow>
-        <boxGeometry args={[0.02, 0.08, 0.2]} />
-        <meshStandardMaterial color="#6b7280" roughness={0.4} metalness={0.7} />
-      </mesh>
-      
-      {/* Ethernet port */}
-      <mesh position={[0.61, 0.1, -0.3]} castShadow>
-        <boxGeometry args={[0.02, 0.12, 0.18]} />
-        <meshStandardMaterial color="#94a3b8" roughness={0.3} metalness={0.8} />
-      </mesh>
-      
-      {/* HDMI port */}
-      <mesh position={[-0.5, 0.06, -0.43]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <boxGeometry args={[0.15, 0.02, 0.07]} />
-        <meshStandardMaterial color="#1f2937" roughness={0.4} metalness={0.7} />
-      </mesh>
-      
-      {/* Power port (USB-C) */}
-      <mesh position={[-0.25, 0.06, -0.43]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <boxGeometry args={[0.1, 0.02, 0.05]} />
-        <meshStandardMaterial color="#374151" roughness={0.4} metalness={0.7} />
-      </mesh>
-      
-      {/* SD card slot */}
-      <mesh position={[-0.61, 0.04, 0]} castShadow>
-        <boxGeometry args={[0.02, 0.03, 0.2]} />
-        <meshStandardMaterial color="#4b5563" roughness={0.5} metalness={0.6} />
-      </mesh>
-      
-      {/* Green Power LED */}
-      <mesh ref={ledRef} position={[0.4, 0.06, 0.25]}>
-        <sphereGeometry args={[0.025, 16, 16]} />
+      {/* LED strip */}
+      <mesh position={[0, 1.1, 0.22]}>
+        <boxGeometry args={[0.8, 0.05, 0.01]} />
         <meshStandardMaterial
-          color="#10b981"
-          emissive="#10b981"
-          emissiveIntensity={1}
-        />
-      </mesh>
-      <pointLight position={[0.4, 0.1, 0.25]} color="#10b981" intensity={0.5} distance={0.5} />
-      
-      {/* Activity LED (yellow) */}
-      <mesh position={[0.35, 0.06, 0.25]}>
-        <sphereGeometry args={[0.02, 16, 16]} />
-        <meshStandardMaterial
-          color="#fbbf24"
-          emissive="#fbbf24"
-          emissiveIntensity={0.6}
+          color="#00D4FF"
+          emissive="#00D4FF"
+          emissiveIntensity={0.8}
         />
       </mesh>
       
-      {/* Label on the board */}
+      <pointLight ref={lightRef} position={[0, 1.1, 0.5]} color="#00D4FF" intensity={1} />
+      
+      {/* Ventilation grills */}
+      {[-0.3, 0, 0.3].map((x, i) => (
+        <mesh key={i} position={[x, 0.6, 0.22]}>
+          <boxGeometry args={[0.2, 0.8, 0.01]} />
+          <meshStandardMaterial color="#1A2332" metalness={0.5} roughness={0.5} />
+        </mesh>
+      ))}
+      
+      {/* Status indicators */}
+      {[-0.4, -0.2, 0, 0.2, 0.4].map((x, i) => (
+        <mesh key={i} position={[x, 0.2, 0.22]}>
+          <sphereGeometry args={[0.02, 16, 16]} />
+          <meshStandardMaterial
+            color={i % 2 === 0 ? "#00FF88" : "#00D4FF"}
+            emissive={i % 2 === 0 ? "#00FF88" : "#00D4FF"}
+            emissiveIntensity={0.5}
+          />
+        </mesh>
+      ))}
+      
+      {/* Base */}
+      <mesh position={[0, 0.05, 0]} castShadow>
+        <boxGeometry args={[1.3, 0.1, 0.5]} />
+        <meshStandardMaterial color="#2A3342" metalness={0.6} roughness={0.4} />
+      </mesh>
+      
+      {/* Label */}
       <Text
-        position={[0.1, 0.06, 0.15]}
-        fontSize={0.08}
-        color="#ffffff"
+        position={[0, 1.5, 0]}
+        fontSize={0.15}
+        color="#00D4FF"
         anchorX="center"
         anchorY="middle"
-        rotation={[-Math.PI / 2, 0, 0]}
       >
-        SafeRide AI{'\n'}Processing Unit
+        SafeRide AI
       </Text>
-      
-      {/* Raspberry Pi logo area */}
-      <mesh position={[0.35, 0.051, -0.2]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.08, 32]} />
-        <meshStandardMaterial color="#c0174d" roughness={0.6} />
-      </mesh>
+      <Text
+        position={[0, 1.3, 0]}
+        fontSize={0.1}
+        color="#B84FFF"
+        anchorX="center"
+        anchorY="middle"
+      >
+        Processing Unit
+      </Text>
     </group>
   );
 };
