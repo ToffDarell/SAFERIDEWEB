@@ -28,7 +28,7 @@ const Index = () => {
       </div>
       
       {/* Conceptual Framework Section */}
-      <div className="relative bg-background z-10">
+      <div className="relative bg-white z-10">
         <ConceptualFramework />
       </div>
     </div>
