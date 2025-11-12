@@ -12,8 +12,8 @@ export const ConceptualFramework = () => {
         <div className="flex-1 min-w-[250px]">
           <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-primary/60 transition-all">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                <Shield className="w-6 h-6 text-gray-900" />
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                <Shield className="w-8 h-8 text-gray-900" />
               </div>
               <h3 className="text-xl font-bold text-gray-900">INPUT</h3>
             </div>
@@ -40,26 +40,26 @@ export const ConceptualFramework = () => {
         <div className="flex-1 min-w-[250px]">
           <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-accent/60 transition-all">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                <Cpu className="w-6 h-6 text-gray-900" />
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                <Cpu className="w-8 h-8 text-gray-900" />
               </div>
               <h3 className="text-xl font-bold text-gray-900">PROCESS</h3>
             </div>
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <Camera className="w-5 h-5 text-gray-900" />
+                <Camera className="w-7 h-7 text-gray-900" />
                 <span className="text-sm text-gray-700">CCTV Camera Capture</span>
               </div>
               <div className="flex items-center gap-3">
-                <Hexagon className="w-5 h-5 text-gray-900" />
+                <Hexagon className="w-7 h-7 text-gray-900" />
                 <span className="text-sm text-gray-700">Raspberry Pi Processing</span>
               </div>
               <div className="flex items-center gap-3">
-                <Cpu className="w-5 h-5 text-gray-900" />
+                <Cpu className="w-7 h-7 text-gray-900" />
                 <span className="text-sm text-gray-700">YOLOv11 Detection</span>
               </div>
               <div className="flex items-center gap-3">
-                <Database className="w-5 h-5 text-gray-900" />
+                <Database className="w-7 h-7 text-gray-900" />
                 <span className="text-sm text-gray-700">OCR Plate Recognition</span>
               </div>
             </div>
@@ -75,8 +75,8 @@ export const ConceptualFramework = () => {
         <div className="flex-1 min-w-[250px]">
           <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-primary-glow/60 transition-all">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-                <Database className="w-6 h-6 text-gray-900" />
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                <Database className="w-8 h-8 text-gray-900" />
               </div>
               <h3 className="text-xl font-bold text-gray-900">OUTPUT</h3>
             </div>
