@@ -12,7 +12,7 @@ export const Cable = ({ start, end }: CableProps) => {
     const endVec = new THREE.Vector3(...end);
     const midPoint = new THREE.Vector3(
       (start[0] + end[0]) / 2,
-      Math.min(start[1], end[1]) - 0.5,
+      Math.max(start[1], end[1]) + 0.05,
       (start[2] + end[2]) / 2
     );
     
@@ -24,7 +24,7 @@ export const Cable = ({ start, end }: CableProps) => {
     const tubeGeometry = new THREE.TubeGeometry(
       new THREE.CatmullRomCurve3(points),
       50,
-      0.02,
+      0.01,
       8,
       false
     );
@@ -32,8 +32,8 @@ export const Cable = ({ start, end }: CableProps) => {
   }, [points]);
 
   return (
-    <mesh geometry={geometry}>
-      <meshStandardMaterial color="#1A1A1A" metalness={0.3} roughness={0.7} />
+    <mesh geometry={geometry} castShadow>
+      <meshStandardMaterial color="#C41E3A" metalness={0.2} roughness={0.8} />
     </mesh>
   );
 };
