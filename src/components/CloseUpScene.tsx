@@ -40,9 +40,9 @@ export const CloseUpScene = () => {
           </mesh>
           
           {/* Components positioned on table */}
-          <ProcessingUnit position={[-0.15, 0.01, 0]} />
-          <CCTVCamera position={[0.35, 0.01, 0.15]} />
-          <Cable start={[-0.05, 0.22, 0.1]} end={[0.35, 0.15, 0.15]} />
+          <ProcessingUnit position={[-0.4, 0.01, 0]} />
+          <CCTVCamera position={[0.5, 0.01, 0.15]} />
+          <Cable start={[-0.2, 0.22, 0.1]} end={[0.5, 0.15, 0.15]} />
         </Suspense>
       </Canvas>
     </div>
