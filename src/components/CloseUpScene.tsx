@@ -9,40 +9,40 @@ import * as THREE from 'three';
 export const CloseUpScene = () => {
   return (
     <div className="w-full h-screen bg-white">
-      <Canvas shadows onCreated={({ scene }) => scene.background = new THREE.Color('#ffffff')}>
+      <Canvas shadows onCreated={({ scene }) => scene.background = new THREE.Color('#f5f5f5')}>
         <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[0.8, 3.8, 1.2]} fov={40} />
+          <PerspectiveCamera makeDefault position={[1.2, 0.8, 1.5]} fov={35} />
           <OrbitControls
             enablePan={false}
-            minDistance={0.8}
-            maxDistance={2}
-            minPolarAngle={Math.PI / 4}
-            maxPolarAngle={Math.PI / 2}
-            target={[0, 3.8, 0]}
+            minDistance={1}
+            maxDistance={3}
+            minPolarAngle={Math.PI / 6}
+            maxPolarAngle={Math.PI / 2.2}
+            target={[0, 0.15, 0]}
           />
           
-          {/* Lighting for white background */}
-          <ambientLight intensity={0.8} />
+          {/* Realistic studio lighting */}
+          <ambientLight intensity={1.2} />
           <directionalLight
-            position={[3, 4, 2]}
-            intensity={1.5}
+            position={[2, 3, 2]}
+            intensity={1.8}
             castShadow
             shadow-mapSize-width={2048}
             shadow-mapSize-height={2048}
           />
-          <pointLight position={[-2, 3, -1]} intensity={0.4} />
-          <pointLight position={[2, 2, 2]} intensity={0.3} />
+          <pointLight position={[-1, 1, 1]} intensity={0.6} />
+          <pointLight position={[1, 0.5, -0.5]} intensity={0.4} />
           
-          {/* White ground plane */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow>
-            <planeGeometry args={[8, 8]} />
-            <meshStandardMaterial color="#ffffff" />
+          {/* Lab table surface */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+            <planeGeometry args={[3, 3]} />
+            <meshStandardMaterial color="#e8e8e8" roughness={0.3} metalness={0.1} />
           </mesh>
           
-          {/* Models positioned very close for detailed view */}
-          <CCTVCamera position={[-0.6, 0, 0]} />
-          <ProcessingUnit position={[0.6, 3.6, 0]} />
-          <Cable start={[-0.4, 3.8, 0]} end={[0.4, 3.9, 0]} />
+          {/* Components positioned on table */}
+          <ProcessingUnit position={[-0.15, 0.01, 0]} />
+          <CCTVCamera position={[0.35, 0.01, 0.15]} />
+          <Cable start={[-0.05, 0.22, 0.1]} end={[0.35, 0.15, 0.15]} />
         </Suspense>
       </Canvas>
     </div>
