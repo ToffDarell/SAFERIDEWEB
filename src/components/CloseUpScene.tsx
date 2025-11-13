@@ -4,20 +4,21 @@ import { CCTVCamera } from './models/CCTVCamera';
 import { ProcessingUnit } from './models/ProcessingUnit';
 import { Cable } from './models/Cable';
 import { Suspense } from 'react';
+import * as THREE from 'three';
 
 export const CloseUpScene = () => {
   return (
     <div className="w-full h-screen bg-white">
-      <Canvas shadows>
+      <Canvas shadows onCreated={({ scene }) => scene.background = new THREE.Color('#ffffff')}>
         <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[1.5, 1.5, 1.5]} fov={45} />
+          <PerspectiveCamera makeDefault position={[0.8, 3.8, 1.2]} fov={40} />
           <OrbitControls
             enablePan={false}
-            minDistance={1}
-            maxDistance={3}
-            minPolarAngle={Math.PI / 6}
-            maxPolarAngle={Math.PI / 2.2}
-            target={[0, 1, 0]}
+            minDistance={0.8}
+            maxDistance={2}
+            minPolarAngle={Math.PI / 4}
+            maxPolarAngle={Math.PI / 2}
+            target={[0, 3.8, 0]}
           />
           
           {/* Lighting for white background */}
@@ -40,8 +41,8 @@ export const CloseUpScene = () => {
           
           {/* Models positioned very close for detailed view */}
           <CCTVCamera position={[-0.6, 0, 0]} />
-          <ProcessingUnit position={[0.6, 0, 0]} />
-          <Cable start={[-0.4, 3.8, 0]} end={[0.4, 0.3, 0]} />
+          <ProcessingUnit position={[0.6, 3.6, 0]} />
+          <Cable start={[-0.4, 3.8, 0]} end={[0.4, 3.9, 0]} />
         </Suspense>
       </Canvas>
     </div>
