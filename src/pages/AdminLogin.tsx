@@ -4,32 +4,69 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Camera, Lock, Mail } from 'lucide-react';
+import { Camera, Lock, Mail, UserCog, Shield } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const AdminLogin = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'tmc_operator'>('admin');
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Sample authentication (frontend only)
-    if (email && password) {
-      toast({
-        title: "Login Successful",
-        description: "Welcome back to SafeRide AI",
-      });
-      navigate('/dashboard');
-    } else {
+    if (!email || !password) {
       toast({
         title: "Login Failed",
         description: "Please enter valid credentials",
         variant: "destructive",
       });
+      return;
     }
+
+    // Check if TMC operator and pending approval
+    if (selectedRole === 'tmc_operator') {
+      const pendingUsers = JSON.parse(localStorage.getItem('pendingUsers') || '[]');
+      const pendingUser = pendingUsers.find((u: any) => u.email === email);
+      
+      if (pendingUser && pendingUser.status === 'pending') {
+        toast({
+          title: "Account Pending",
+          description: "Your account is awaiting administrator approval",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const approvedUsers = JSON.parse(localStorage.getItem('approvedUsers') || '[]');
+      const approvedUser = approvedUsers.find((u: any) => u.email === email && u.password === password);
+      
+      if (!approvedUser) {
+        toast({
+          title: "Login Failed",
+          description: "Invalid credentials or account not approved",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Store current user session
+    localStorage.setItem('currentUser', JSON.stringify({
+      email,
+      role: selectedRole,
+      name: selectedRole === 'admin' ? 'Administrator' : 'TMC Operator',
+      loginTime: new Date().toISOString(),
+    }));
+
+    toast({
+      title: "Login Successful",
+      description: `Welcome back, ${selectedRole === 'admin' ? 'Administrator' : 'TMC Operator'}`,
+    });
+    navigate('/dashboard');
   };
 
   return (
@@ -49,12 +86,25 @@ const AdminLogin = () => {
         {/* Login Card */}
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-2xl text-foreground">Admin Login</CardTitle>
+            <CardTitle className="text-2xl text-foreground">System Login</CardTitle>
             <CardDescription>
-              Enter your credentials to access the dashboard
+              Select your role and enter credentials
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <Tabs value={selectedRole} onValueChange={(v) => setSelectedRole(v as 'admin' | 'tmc_operator')} className="mb-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="admin" className="gap-2">
+                  <Shield className="w-4 h-4" />
+                  Admin
+                </TabsTrigger>
+                <TabsTrigger value="tmc_operator" className="gap-2">
+                  <UserCog className="w-4 h-4" />
+                  TMC Operator
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -63,7 +113,7 @@ const AdminLogin = () => {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="admin@saferide.ai"
+                    placeholder={selectedRole === 'admin' ? 'admin@saferide.ai' : 'operator@tmc.gov'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
@@ -87,13 +137,25 @@ const AdminLogin = () => {
               </div>
 
               <Button type="submit" className="w-full">
-                Sign In
+                Sign In as {selectedRole === 'admin' ? 'Admin' : 'TMC Operator'}
               </Button>
+
+              {selectedRole === 'tmc_operator' && (
+                <div className="text-center">
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:underline"
+                    onClick={() => navigate('/register')}
+                  >
+                    Don't have an account? Register here
+                  </button>
+                </div>
+              )}
 
               <div className="text-center">
                 <button
                   type="button"
-                  className="text-sm text-primary hover:underline"
+                  className="text-sm text-muted-foreground hover:text-primary"
                   onClick={() => {
                     toast({
                       title: "Demo Mode",

@@ -11,6 +11,8 @@ import CameraStatus from "./pages/CameraStatus";
 import AdminLogin from "./pages/AdminLogin";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Registration from "./pages/Registration";
+import Reports from "./pages/Reports";
 
 const queryClient = new QueryClient();
 
@@ -23,10 +25,12 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<AdminLogin />} />
+          <Route path="/register" element={<Registration />} />
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/violations" element={<Violations />} />
             <Route path="/cameras" element={<CameraStatus />} />
+            <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
