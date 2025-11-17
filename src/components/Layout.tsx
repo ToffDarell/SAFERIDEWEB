@@ -1,9 +1,49 @@
-import { Link, useLocation, Outlet } from 'react-router-dom';
-import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut } from 'lucide-react';
+import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
+import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText } from 'lucide-react';
 import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { useEffect, useState } from 'react';
 
 export const Layout = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  
+  useEffect(() => {
+    const storedNotifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+    setNotifications(storedNotifications);
+    
+    // Simulate new violation notifications
+    const interval = setInterval(() => {
+      const newNotification = {
+        id: Date.now(),
+        message: `New violation detected at ${new Date().toLocaleTimeString()}`,
+        time: new Date().toISOString(),
+        read: false,
+      };
+      
+      const updated = [newNotification, ...notifications].slice(0, 10);
+      setNotifications(updated);
+      localStorage.setItem('notifications', JSON.stringify(updated));
+    }, 60000); // Every minute
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  const handleLogout = () => {
+    localStorage.removeItem('currentUser');
+    navigate('/login');
+  };
+  
+  const markAllAsRead = () => {
+    const updated = notifications.map(n => ({ ...n, read: true }));
+    setNotifications(updated);
+    localStorage.setItem('notifications', JSON.stringify(updated));
+  };
+  
+  const unreadCount = notifications.filter(n => !n.read).length;
   
   const isActive = (path: string) => location.pathname === path;
   
@@ -11,6 +51,7 @@ export const Layout = () => {
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/violations', icon: AlertTriangle, label: 'Violations' },
     { path: '/cameras', icon: Camera, label: 'Camera Status' },
+    { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
@@ -29,12 +70,59 @@ export const Layout = () => {
             </div>
           </div>
           
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/login">
+          <div className="flex items-center gap-4">
+            <div className="text-right mr-4">
+              <p className="text-sm font-medium text-foreground">{currentUser.name}</p>
+              <p className="text-xs text-muted-foreground">{currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator'}</p>
+            </div>
+            
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="relative">
+                  <Bell className="w-4 h-4" />
+                  {unreadCount > 0 && (
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-sm">Notifications</h4>
+                    {unreadCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No notifications</p>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div 
+                          key={notif.id} 
+                          className={`p-3 rounded-lg border ${notif.read ? 'bg-background' : 'bg-accent/10 border-accent'}`}
+                        >
+                          <p className="text-sm">{notif.message}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(notif.time).toLocaleString()}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+            
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4" />
               <span>Logout</span>
-            </Link>
-          </Button>
+            </Button>
+          </div>
         </div>
       </header>
 
