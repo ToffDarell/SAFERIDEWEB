@@ -27,32 +27,7 @@ const AdminLogin = () => {
       return;
     }
 
-    // Check if TMC operator and pending approval
-    if (selectedRole === 'tmc_operator') {
-      const pendingUsers = JSON.parse(localStorage.getItem('pendingUsers') || '[]');
-      const pendingUser = pendingUsers.find((u: any) => u.email === email);
-      
-      if (pendingUser && pendingUser.status === 'pending') {
-        toast({
-          title: "Account Pending",
-          description: "Your account is awaiting administrator approval",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const approvedUsers = JSON.parse(localStorage.getItem('approvedUsers') || '[]');
-      const approvedUser = approvedUsers.find((u: any) => u.email === email && u.password === password);
-      
-      if (!approvedUser) {
-        toast({
-          title: "Login Failed",
-          description: "Invalid credentials or account not approved",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
+    // For this demo, TMC Operator login behaves the same as Admin (no approval checks)
 
     // Store current user session
     localStorage.setItem('currentUser', JSON.stringify({
