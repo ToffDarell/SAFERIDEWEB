@@ -3,10 +3,20 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { FileText, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 const Reports = () => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isOperator = currentUser.role === 'tmc_operator';
+  const { toast } = useToast();
+
+  const handleGenerateReport = () => {
+    toast({
+      title: 'Report Generation Started',
+      description: 'Generate Completed',
+    });
+  };
 
   const summaryData = [
     { title: 'Total Violations', value: '156', icon: AlertCircle, trend: '+12%', color: 'text-destructive' },
@@ -40,7 +50,15 @@ const Reports = () => {
             {isOperator ? 'Read-only violation summaries' : 'Comprehensive violation analytics'}
           </p>
         </div>
-        <FileText className="w-8 h-8 text-primary" />
+        <div className="flex items-center gap-3">
+          {!isOperator && (
+            <Button onClick={handleGenerateReport}>
+              <FileText className="w-4 h-4 mr-2" />
+              Generate Report
+            </Button>
+          )}
+          <FileText className="w-8 h-8 text-primary" />
+        </div>
       </div>
 
       {isOperator && (

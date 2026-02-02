@@ -7,7 +7,7 @@ const CameraStatus = () => {
     {
       id: 'CAM-001',
       name: 'Main Street Junction',
-      location: 'Main St & 5th Ave',
+      location: 'Sumpong',
       status: 'online',
       uptime: '99.8%',
       fps: '120',
@@ -16,7 +16,7 @@ const CameraStatus = () => {
     {
       id: 'CAM-002',
       name: 'Park Road Intersection',
-      location: 'Park Rd & Oak St',
+      location: 'Casisang Landing',
       status: 'online',
       uptime: '98.5%',
       fps: '118',
