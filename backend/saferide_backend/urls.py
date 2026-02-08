@@ -10,10 +10,16 @@ urlpatterns = [
     # JWT Auth
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+
+    # Google OAuth2
+    path('api/auth/', include('dj_rest_auth.urls')),
+    path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
+    path('api/auth/google/', include('allauth.socialaccount.providers.google.urls')),
     
     # API endpoints
     path("api/cameras/", include("cameras.urls")),
     path("api/violations/", include("violations.urls")),
+    path("api/users/", include("users.urls")), 
 ]
 
 # Serve media files in development

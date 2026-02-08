@@ -1,30 +1,124 @@
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, Camera, CheckCircle, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { violationsService } from '@/services/violations';
+import { camerasService } from '@/services/cameras';
+import { useToast } from '@/hooks/use-toast';
 
 const Dashboard = () => {
-  const stats = [
-    { title: 'Total Violations', value: '1,284', icon: AlertTriangle, trend: '+12.5%', color: 'text-destructive' },
-    { title: 'Active Cameras', value: '24', icon: Camera, trend: '100%', color: 'text-primary' },
-    { title: 'Plates Recognized', value: '3,891', icon: CheckCircle, trend: '+8.2%', color: 'text-accent' },
-    { title: 'Detection Rate', value: '95.2%', icon: TrendingUp, trend: '+2.1%', color: 'text-primary' },
-  ];
+  const { toast } = useToast();
+  const [stats, setStats] = useState([
+    { title: 'Total Violations', value: '0', icon: AlertTriangle, trend: '+0%', color: 'text-destructive' },
+    { title: 'Active Cameras', value: '0', icon: Camera, trend: '100%', color: 'text-primary' },
+    { title: 'Plates Recognized', value: '0', icon: CheckCircle, trend: '+0%', color: 'text-accent' },
+    { title: 'Detection Rate', value: '0%', icon: TrendingUp, trend: '+0%', color: 'text-primary' },
+  ]);
+  const [weeklyData, setWeeklyData] = useState<any[]>([]);
+  const [violationTypes, setViolationTypes] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const weeklyData = [
-    { day: 'Mon', violations: 180 },
-    { day: 'Tue', violations: 220 },
-    { day: 'Wed', violations: 195 },
-    { day: 'Thu', violations: 245 },
-    { day: 'Fri', violations: 280 },
-    { day: 'Sat', violations: 165 },
-    { day: 'Sun', violations: 140 },
-  ];
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
 
-  const violationTypes = [
-    { name: 'No Helmet', value: 856, color: 'hsl(var(--destructive))' },
-    { name: 'Partial Helmet', value: 284, color: 'hsl(var(--accent))' },
-    { name: 'Compliant', value: 2751, color: 'hsl(var(--primary))' },
-  ];
+  const loadDashboardData = async () => {
+    try {
+      // Fetch violations and cameras from Django API
+      const [violationsData, camerasData] = await Promise.all([
+        violationsService.getViolations(),
+        camerasService.getCameras(),
+      ]);
+
+      const violations = violationsData.results || [];
+      const cameras = camerasData.results || [];
+      const totalViolations = violationsData.count || 0;
+      const activeCameras = cameras.filter((c: any) => c.status === 'active').length;
+      const platesRecognized = violations.filter((v: any) => v.plate_number).length;
+      const detectionRate = totalViolations > 0 ? '95.2' : '0';
+
+      setStats([
+        { title: 'Total Violations', value: totalViolations.toString(), icon: AlertTriangle, trend: '+12.5%', color: 'text-destructive' },
+        { title: 'Active Cameras', value: activeCameras.toString(), icon: Camera, trend: '100%', color: 'text-primary' },
+        { title: 'Plates Recognized', value: platesRecognized.toString(), icon: CheckCircle, trend: '+8.2%', color: 'text-accent' },
+        { title: 'Detection Rate', value: `${detectionRate}%`, icon: TrendingUp, trend: '+2.1%', color: 'text-primary' },
+      ]);
+
+      // Calculate weekly violations (last 7 days)
+      calculateWeeklyData(violations);
+      
+      // Calculate violation distribution
+      calculateViolationDistribution(violations);
+      
+    } catch (error) {
+      toast({
+        title: 'Error loading dashboard',
+        description: 'Failed to fetch data from server',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const calculateWeeklyData = (violations: any[]) => {
+    const today = new Date();
+    const last7Days = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      last7Days.push(date);
+    }
+    
+    const weeklyStats = last7Days.map(date => {
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const dateStr = date.toDateString();
+      
+      const count = violations.filter(v => {
+        const violationDate = new Date(v.detected_at);
+        return violationDate.toDateString() === dateStr;
+      }).length;
+      
+      return {
+        day: dayName,
+        violations: count
+      };
+    });
+    
+    setWeeklyData(weeklyStats);
+  };
+
+  const calculateViolationDistribution = (violations: any[]) => {
+    const noHelmet = violations.filter(v => 
+      v.classification === 'no_helmet' || v.classification === 'nutshell'
+    ).length;
+    
+    const partialHelmet = violations.filter(v => 
+      v.classification === 'half_face_helmet'
+    ).length;
+    
+    const compliant = violations.filter(v => 
+      v.classification === 'full_face_helmet' || v.detection_status === 'compliant'
+    ).length;
+    
+    setViolationTypes([
+      { name: 'No Helmet', value: noHelmet, color: 'hsl(var(--destructive))' },
+      { name: 'Partial Helmet', value: partialHelmet, color: 'hsl(var(--accent))' },
+      { name: 'Compliant', value: compliant, color: 'hsl(var(--primary))' },
+    ]);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -57,14 +151,14 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground">Weekly Violations</CardTitle>
+            <CardTitle className="text-foreground">Weekly Violations (Last 7 Days)</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={weeklyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
-                <YAxis stroke="hsl(var(--muted-foreground))" />
+                <YAxis stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: 'hsl(var(--card))', 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -7,99 +7,57 @@ import { Search, Download, CheckCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { violationsService } from '@/services/violations';
 
 const Violations = () => {
   const { toast } = useToast();
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
   
-  const [violations, setViolations] = useState([
-    {
-      id: 1,
-      date: '2025-10-29',
-      time: '14:35:22',
-      plate: 'ABC-1234',
-      location: 'Main St & 5th Ave',
-      status: 'No Helmet',
-      reviewStatus: 'Pending',
-      confidence: '96.5%',
-    },
-    {
-      id: 2,
-      date: '2025-10-29',
-      time: '14:28:15',
-      plate: 'XYZ-5678',
-      location: 'Park Rd & Oak St',
-      status: 'No Helmet',
-      reviewStatus: 'Reviewed',
-      confidence: '94.2%',
-    },
-    {
-      id: 3,
-      date: '2025-10-29',
-      time: '14:15:43',
-      plate: 'DEF-9012',
-      location: 'Highway 101',
-      status: 'Partial Helmet',
-      reviewStatus: 'Pending',
-      confidence: '89.7%',
-    },
-    {
-      id: 4,
-      date: '2025-10-29',
-      time: '13:52:08',
-      plate: 'GHI-3456',
-      location: 'Main St & 5th Ave',
-      status: 'No Helmet',
-      reviewStatus: 'Resolved',
-      confidence: '97.8%',
-    },
-    {
-      id: 5,
-      date: '2025-10-29',
-      time: '13:45:31',
-      plate: 'JKL-7890',
-      location: 'Downtown Plaza',
-      status: 'No Helmet',
-      reviewStatus: 'Pending',
-      confidence: '93.4%',
-    },
-    {
-      id: 6,
-      date: '2025-10-29',
-      time: '13:22:56',
-      plate: 'MNO-2345',
-      location: 'Park Rd & Oak St',
-      status: 'Partial Helmet',
-      reviewStatus: 'Reviewed',
-      confidence: '88.9%',
-    },
-    {
-      id: 7,
-      date: '2025-10-29',
-      time: '12:58:19',
-      plate: 'PQR-6789',
-      location: 'Highway 101',
-      status: 'No Helmet',
-      reviewStatus: 'Pending',
-      confidence: '95.6%',
-    },
-    {
-      id: 8,
-      date: '2025-10-29',
-      time: '12:33:44',
-      plate: 'STU-0123',
-      location: 'Main St & 5th Ave',
-      status: 'No Helmet',
-      reviewStatus: 'Reviewed',
-      confidence: '92.3%',
-    },
-  ]);
+  const [violations, setViolations] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    loadViolations();
+  }, []);
+
+  const loadViolations = async () => {
+    try {
+      const data = await violationsService.getViolations();
+      const violationsData = data.results || [];
+      
+      // Load persisted review statuses from localStorage
+      const savedStatuses = JSON.parse(localStorage.getItem('violationStatuses') || '{}');
+      
+      // Merge saved statuses with fetched data
+      const mergedViolations = violationsData.map((v: any) => ({
+        ...v,
+        reviewStatus: savedStatuses[v.id] || v.reviewStatus || 'Pending'
+      }));
+      
+      setViolations(mergedViolations);
+    } catch (error) {
+      toast({
+        title: "Error loading violations",
+        description: "Failed to fetch violations from server",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleStatusUpdate = (violationId: number, newStatus: string) => {
+    // Update state
     setViolations(prev => 
       prev.map(v => v.id === violationId ? { ...v, reviewStatus: newStatus } : v)
     );
+    
+    // Persist to localStorage
+    const savedStatuses = JSON.parse(localStorage.getItem('violationStatuses') || '{}');
+    savedStatuses[violationId] = newStatus;
+    localStorage.setItem('violationStatuses', JSON.stringify(savedStatuses));
     
     // Add notification
     const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
@@ -109,13 +67,49 @@ const Violations = () => {
       time: new Date().toISOString(),
       read: false,
     });
-    localStorage.setItem('notifications', JSON.stringify(notifications));
+    localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
 
     toast({
       title: "Status Updated",
       description: `Violation #${violationId} marked as ${newStatus}`,
     });
   };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString();
+  };
+
+  const getStatusBadge = (classification: string) => {
+    if (classification === 'no_helmet' || classification === 'nutshell') {
+      return 'No Helmet';
+    } else if (classification === 'half_face_helmet') {
+      return 'Partial Helmet';
+    } else {
+      return 'Full Face Helmet';
+    }
+  };
+
+  const filteredViolations = violations.filter(v => 
+    v.plate_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    v.camera_name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading violations...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -138,94 +132,108 @@ const Violations = () => {
           <div className="relative mt-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Search by plate number..."
+              placeholder="Search by plate number or camera..."
               className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Plate Number</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Confidence</TableHead>
-                  <TableHead>Review Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {violations.map((violation) => (
-                  <TableRow key={violation.id}>
-                    <TableCell className="font-medium">#{violation.id}</TableCell>
-                    <TableCell>{violation.date}</TableCell>
-                    <TableCell>{violation.time}</TableCell>
-                    <TableCell>
-                      <span className="font-mono font-semibold text-primary">
-                        {violation.plate}
-                      </span>
-                    </TableCell>
-                    <TableCell>{violation.location}</TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={violation.status === 'No Helmet' ? 'destructive' : 'secondary'}
-                      >
-                        {violation.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-accent font-medium">{violation.confidence}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={
-                          violation.reviewStatus === 'Resolved' 
-                            ? 'default' 
-                            : violation.reviewStatus === 'Reviewed' 
-                            ? 'secondary' 
-                            : 'destructive'
-                        }
-                      >
-                        {violation.reviewStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Select 
-                          value={violation.reviewStatus}
-                          onValueChange={(value) => handleStatusUpdate(violation.id, value)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Pending">Pending</SelectItem>
-                            <SelectItem value="Reviewed">
-                              <div className="flex items-center gap-2">
-                                <Eye className="w-4 h-4" />
-                                Reviewed
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="Resolved">
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="w-4 h-4" />
-                                Resolved
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </TableCell>
+          {filteredViolations.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No violations found
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Plate Number</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Confidence</TableHead>
+                    <TableHead>Review Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredViolations.map((violation) => (
+                    <TableRow key={violation.id}>
+                      <TableCell className="font-medium">#{violation.id}</TableCell>
+                      <TableCell>{formatDate(violation.detected_at)}</TableCell>
+                      <TableCell>{formatTime(violation.detected_at)}</TableCell>
+                      <TableCell>
+                        <span className="font-mono font-semibold text-primary">
+                          {violation.plate_number || 'N/A'}
+                        </span>
+                      </TableCell>
+                      <TableCell>{violation.camera_name || 'Unknown'}</TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={
+                            violation.classification === 'no_helmet' || violation.classification === 'nutshell'
+                              ? 'destructive' 
+                              : 'secondary'
+                          }
+                        >
+                          {getStatusBadge(violation.classification)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-accent font-medium">
+                          {(violation.confidence_score * 100).toFixed(1)}%
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={
+                            violation.reviewStatus === 'Resolved' 
+                              ? 'default' 
+                              : violation.reviewStatus === 'Reviewed' 
+                              ? 'secondary' 
+                              : 'destructive'
+                          }
+                        >
+                          {violation.reviewStatus || 'Pending'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Select 
+                            value={violation.reviewStatus || 'Pending'}
+                            onValueChange={(value) => handleStatusUpdate(violation.id, value)}
+                          >
+                            <SelectTrigger className="w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Pending">Pending</SelectItem>
+                              <SelectItem value="Reviewed">
+                                <div className="flex items-center gap-2">
+                                  <Eye className="w-4 h-4" />
+                                  Reviewed
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="Resolved">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-4 h-4" />
+                                  Resolved
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

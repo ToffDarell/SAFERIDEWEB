@@ -35,5 +35,10 @@ ENV/
 *.db
 *.sqlite3
 
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
 # YOLO weights (large files)
 *.pt

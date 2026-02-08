@@ -21,6 +21,7 @@ export interface ViolationFilters {
   classification?: string;
   ordering?: string;
   page?: number;
+  page_size?: number;  
 }
 
 export const violationsService = {
@@ -33,6 +34,7 @@ export const violationsService = {
     if (filters?.classification) params.append('classification', filters.classification);
     if (filters?.ordering) params.append('ordering', filters.ordering);
     if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.page_size) params.append('page_size', filters.page_size.toString());  
 
     const response = await apiClient.get(`/violations/?${params.toString()}`);
     return response.data;

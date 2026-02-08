@@ -4,37 +4,64 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { useEffect, useState } from 'react';
+import { authService } from '@/services/auth';
+import { violationsService } from '@/services/violations';
 
 export const Layout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [lastViolationId, setLastViolationId] = useState<number>(0);
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   
   useEffect(() => {
+    // Load existing notifications from localStorage
     const storedNotifications = JSON.parse(localStorage.getItem('notifications') || '[]');
     setNotifications(storedNotifications);
     
-    // Simulate new violation notifications
-    const interval = setInterval(() => {
-      const newNotification = {
-        id: Date.now(),
-        message: `New violation detected at ${new Date().toLocaleTimeString()}`,
-        time: new Date().toISOString(),
-        read: false,
-      };
-      
-      const updated = [newNotification, ...notifications].slice(0, 10);
-      setNotifications(updated);
-      localStorage.setItem('notifications', JSON.stringify(updated));
-    }, 60000); // Every minute
+    // Get the last violation ID we've seen
+    const storedLastId = parseInt(localStorage.getItem('lastViolationId') || '0');
+    setLastViolationId(storedLastId);
     
-    return () => clearInterval(interval);
-  }, []);
+    // Poll for new violations every 5 seconds
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await violationsService.getViolations({ ordering: '-id', page_size: 1 });
+        const latestViolation = data.results?.[0];
+        
+        if (latestViolation && latestViolation.id > lastViolationId) {
+          // New violation detected!
+          const newNotification = {
+            id: Date.now(),
+            violationId: latestViolation.id,
+            message: `New violation detected: ${latestViolation.plate_number || 'Unknown plate'} at ${latestViolation.camera_name || 'Unknown location'}`,
+            time: new Date().toISOString(),
+            read: false,
+          };
+          
+          setNotifications(prev => {
+            const updated = [newNotification, ...prev].slice(0, 50); // Keep last 50 notifications
+            localStorage.setItem('notifications', JSON.stringify(updated));
+            return updated;
+          });
+          
+          setLastViolationId(latestViolation.id);
+          localStorage.setItem('lastViolationId', latestViolation.id.toString());
+        }
+      } catch (error) {
+        console.error('Failed to poll violations:', error);
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [lastViolationId]);
   
   const handleLogout = () => {
+    authService.logout(); // Clear JWT tokens
     localStorage.removeItem('currentUser');
-    navigate('/login');
+    localStorage.removeItem('notifications'); // Clear notifications on logout
+    localStorage.removeItem('lastViolationId');
+    navigate('/');
   };
   
   const markAllAsRead = () => {
@@ -72,7 +99,7 @@ export const Layout = () => {
           
           <div className="flex items-center gap-4">
             <div className="text-right mr-4">
-              <p className="text-sm font-medium text-foreground">{currentUser.name}</p>
+              <p className="text-sm font-medium text-foreground">{currentUser.name || 'Admin'}</p>
               <p className="text-xs text-muted-foreground">{currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator'}</p>
             </div>
             

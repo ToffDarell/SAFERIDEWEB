@@ -23,9 +23,20 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def me(self, request):
-        """Get current user info"""
-        serializer = self.get_serializer(request.user)
-        return Response(serializer.data)
+        """Get current user profile"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            return Response({
+                'id': request.user.id,
+                'username': request.user.username,
+                'email': request.user.email,
+                'first_name': request.user.first_name,
+                'last_name': request.user.last_name,
+                'role': profile.role,
+                'status': profile.status,
+            })
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=404)
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def pending(self, request):
