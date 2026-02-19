@@ -40,4 +40,11 @@ export const camerasService = {
   async deleteCamera(id: number) {
     await apiClient.delete(`/cameras/${id}/`);
   },
+
+  // Get stream URL for camera
+  getStreamUrl(id: number): string {
+    const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
+    const token = localStorage.getItem('accessToken');
+    return `${baseURL}/cameras/${id}/stream/?detection=true`;
+  },
 };

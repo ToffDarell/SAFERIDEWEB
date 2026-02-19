@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { violationsService } from '@/services/violations';
 import { camerasService } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
+import { useViolationNotifications } from '@/hooks/use-notifications';
 
 const Dashboard = () => {
   const { toast } = useToast();
@@ -108,6 +109,8 @@ const Dashboard = () => {
       { name: 'Compliant', value: compliant, color: 'hsl(var(--primary))' },
     ]);
   };
+
+  useViolationNotifications();
 
   if (isLoading) {
     return (

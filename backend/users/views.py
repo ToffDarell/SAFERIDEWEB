@@ -36,7 +36,16 @@ class UserViewSet(viewsets.ModelViewSet):
                 'status': profile.status,
             })
         except UserProfile.DoesNotExist:
-            return Response({'error': 'Profile not found'}, status=404)
+            # Fallback for superusers or users without a profile
+            return Response({
+                'id': request.user.id,
+                'username': request.user.username,
+                'email': request.user.email,
+                'first_name': request.user.first_name,
+                'last_name': request.user.last_name,
+                'role': 'admin' if request.user.is_staff or request.user.is_superuser else 'tmc_operator',
+                'status': 'approved',
+            })
     
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def pending(self, request):

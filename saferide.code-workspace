@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": "backend",
+      "name": "Backend"
+    },
+    {
+      "path": "yolo_service",
+      "name": "YOLO Service"
+    },
+    {
+      "path": "frontend",
+      "name": "Frontend"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe"
+  }
+}

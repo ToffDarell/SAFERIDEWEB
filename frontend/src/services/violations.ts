@@ -26,17 +26,8 @@ export interface ViolationFilters {
 
 export const violationsService = {
   // Get all violations with filters
-  async getViolations(filters?: ViolationFilters) {
-    const params = new URLSearchParams();
-    
-    if (filters?.detection_status) params.append('detection_status', filters.detection_status);
-    if (filters?.camera) params.append('camera', filters.camera.toString());
-    if (filters?.classification) params.append('classification', filters.classification);
-    if (filters?.ordering) params.append('ordering', filters.ordering);
-    if (filters?.page) params.append('page', filters.page.toString());
-    if (filters?.page_size) params.append('page_size', filters.page_size.toString());  
-
-    const response = await apiClient.get(`/violations/?${params.toString()}`);
+  async getViolations(params?: any) {
+    const response = await apiClient.get('/violations/', { params });
     return response.data;
   },
 

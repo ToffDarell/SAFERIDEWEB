@@ -20,7 +20,38 @@ const Violations = () => {
 
   useEffect(() => {
     loadViolations();
-  }, []);
+    
+    // Poll for new violations every 10 seconds
+    const interval = setInterval(async () => {
+      const data = await violationsService.getViolations();
+      const newViolations = data.results || [];
+      
+      // Check for new violations
+      newViolations.forEach((newV: any) => {
+        const exists = violations.find(v => v.id === newV.id);
+        if (!exists && newV.detection_status === 'violation') {
+          // New violation detected - add notification
+          const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+          notifications.unshift({
+            id: Date.now(),
+            message: `New violation detected: ${newV.plate_number || 'Unknown'} at ${newV.camera_name}`,
+            time: new Date().toISOString(),
+            read: false,
+          });
+          localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
+          
+          toast({
+            title: "New Violation Detected",
+            description: `${newV.plate_number || 'Unknown'} at ${newV.camera_name}`,
+          });
+        }
+      });
+      
+      setViolations(newViolations);
+    }, 10000); // Check every 10 seconds
+    
+    return () => clearInterval(interval);
+  }, [violations]);
 
   const loadViolations = async () => {
     try {
