@@ -1,9 +1,22 @@
 from rest_framework import serializers
-from .models import Camera
+from .models import Camera, SystemSettings
+
+
+class SystemSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSettings
+        fields = [
+            'auto_logout',
+            'session_timeout',
+            'password_min_length',
+            'confidence_threshold',
+            'send_cooldown_seconds',
+            'data_retention_days',
+            'ocr_confidence',
+        ]
 
 
 class CameraSerializer(serializers.ModelSerializer):
     class Meta:
         model = Camera
-        fields = ['id', 'name', 'location', 'stream_url', 'status', 'last_seen_at', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = '__all__'

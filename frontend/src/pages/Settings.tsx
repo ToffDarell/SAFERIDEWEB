@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -8,17 +9,70 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Globe, Eye, Lock, Camera, Users, AlertCircle } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Globe, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { API_BASE } from '@/config';
+
+function getAuthHeaders() {
+  // Support both storage keys: 'accessToken' (used elsewhere) and 'access_token'
+  const token = localStorage.getItem("accessToken") || localStorage.getItem("access_token") || '';
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
 
 const Settings = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Persist selected tab in the URL query param `tab` so refresh keeps the same tab
+  const initialTab = searchParams.get('tab') || 'profile';
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  useEffect(() => {
+    const qp = searchParams.get('tab') || 'profile';
+    if (qp !== activeTab) setActiveTab(qp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  // simple local state for "Add Operator" modal
   const [showAddOperator, setShowAddOperator] = useState(false);
-  const [newOperator, setNewOperator] = useState({ name: '', email: '', password: '' });
+  const [newOperator, setNewOperator] = useState({ name: '', email: '', password: '', role: 'tmc_operator' });
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [creatingOperator, setCreatingOperator] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showOpPassword, setShowOpPassword] = useState(false);
+
+  // System Settings state
+  const [systemSettings, setSystemSettings] = useState({
+    auto_logout: true,
+    session_timeout: 30,
+    password_min_length: 8,
+  });
+
+  // Detection Settings state
+  const [detectionSettings, setDetectionSettings] = useState({
+    confidence_threshold: 0.60,
+    send_cooldown_seconds: 3.0,
+    data_retention_days: 90,
+    ocr_confidence: 0.20,
+  });
+
+  // Manage Users state
+  const [showManageUsers, setShowManageUsers] = useState(false);
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+
+  // Pending Registrations state
+  const [showPending, setShowPending] = useState(false);
+  const [pendingList, setPendingList] = useState<any[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [processingId, setProcessingId] = useState<number | null>(null);
 
   useEffect(() => {
     const user = localStorage.getItem('currentUser');
@@ -26,24 +80,241 @@ const Settings = () => {
       const userData = JSON.parse(user);
       setCurrentUser(userData);
       setIsAdmin(userData.role === 'admin');
+      if (userData.role === 'admin') loadSystemSettings();
     }
   }, []);
 
-  const handleSave = (section: string) => {
-    toast({
-      title: "Settings Updated",
-      description: `${section} settings have been saved successfully.`,
-    });
+  // ← ADD THIS: reload settings whenever detection or system tab is opened
+  useEffect(() => {
+    if ((activeTab === 'detection' || activeTab === 'system') && isAdmin) {
+      loadSystemSettings();
+    }
+  }, [activeTab, isAdmin]);
+
+  const loadSystemSettings = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/settings/`, { headers: getAuthHeaders() });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setSystemSettings({
+        auto_logout:         data.auto_logout         ?? true,
+        session_timeout:     data.session_timeout     ?? 30,
+        password_min_length: data.password_min_length ?? 8,
+      });
+      setDetectionSettings({
+        confidence_threshold:  data.confidence_threshold  != null ? parseFloat(data.confidence_threshold)  : 0.60,
+        send_cooldown_seconds: data.send_cooldown_seconds != null ? parseFloat(data.send_cooldown_seconds) : 3.0,
+        data_retention_days:   data.data_retention_days  != null ? parseInt(data.data_retention_days)     : 90,
+        ocr_confidence:        data.ocr_confidence        != null ? parseFloat(data.ocr_confidence)        : 0.20,
+      });
+    } catch {}
   };
 
-  const handleCreateOperator = () => {
-    // TODO: replace with API call to create operator account
-    toast({
-      title: 'Operator Created',
-      description: `Operator ${newOperator.name || newOperator.email} has been added and is now pending activation.`,
-    });
-    setNewOperator({ name: '', email: '', password: '' });
-    setShowAddOperator(false);
+  // ── Manage Users helpers ──────────────────────────────────────────────────────
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const resp = await fetch(`${API_BASE}/users/`, { headers: getAuthHeaders() });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      // DRF may return paginated {results:[]} or a plain array
+      setUsersList(Array.isArray(data) ? data : (data.results ?? []));
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message ?? 'Could not load users.', variant: 'destructive' });
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const toggleManageUsers = () => {
+    const next = !showManageUsers;
+    setShowManageUsers(next);
+    if (next && usersList.length === 0) loadUsers();
+  };
+
+  // ── Pending Registrations helpers ─────────────────────────────────────────────
+  const loadPending = async () => {
+    setLoadingPending(true);
+    try {
+      const resp = await fetch(`${API_BASE}/users/pending/`, { headers: getAuthHeaders() });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      setPendingList(Array.isArray(data) ? data : (data.results ?? []));
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message ?? 'Could not load pending users.', variant: 'destructive' });
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  const togglePending = () => {
+    const next = !showPending;
+    setShowPending(next);
+    if (next) loadPending();
+  };
+
+  const handleApproveOrReject = async (userId: number, action: 'approve' | 'reject', name: string) => {
+    setProcessingId(userId);
+    try {
+      const resp = await fetch(`${API_BASE}/users/${userId}/${action}/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      setPendingList((prev) => prev.filter((u) => u.id !== userId));
+      toast({
+        title: action === 'approve' ? 'User Approved' : 'User Rejected',
+        description: `"${name}" has been ${action === 'approve' ? 'approved and can now log in' : 'rejected'}.`,
+      });
+    } catch (err: any) {
+      toast({ title: 'Action Failed', description: err?.message ?? `Could not ${action} user.`, variant: 'destructive' });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleDeleteUser = async (userId: number, username: string) => {
+    if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+    setDeletingUserId(userId);
+    try {
+      const resp = await fetch(`${API_BASE}/users/${userId}/`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (resp.status === 204 || resp.ok) {
+        setUsersList((prev) => prev.filter((u) => u.id !== userId));
+        toast({ title: 'User Deleted', description: `"${username}" has been removed.` });
+      } else {
+        const body = await resp.text();
+        throw new Error(body);
+      }
+    } catch (err: any) {
+      toast({ title: 'Delete Failed', description: err?.message ?? 'Could not delete user.', variant: 'destructive' });
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
+  const handleSave = async (section: string) => {
+    setSavingSection(section);
+    try {
+      if (section === 'Profile') {
+        const name = (document.getElementById('name') as HTMLInputElement)?.value;
+        const email = (document.getElementById('email') as HTMLInputElement)?.value;
+        const [first_name, ...rest] = (name ?? '').split(' ');
+        const last_name = rest.join(' ');
+
+        const resp = await fetch(`${API_BASE}/users/me/`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ first_name, last_name, email }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+      }
+
+      if (section === 'Password') {
+        const currentPw = (document.getElementById('current-password') as HTMLInputElement)?.value;
+        const newPw = (document.getElementById('new-password') as HTMLInputElement)?.value;
+        const confirmPw = (document.getElementById('confirm-password') as HTMLInputElement)?.value;
+
+        if (!currentPw || !newPw || !confirmPw) {
+          toast({ title: "Validation Error", description: "All password fields are required.", variant: "destructive" });
+          return;
+        }
+        if (newPw !== confirmPw) {
+          toast({ title: "Validation Error", description: "New passwords do not match.", variant: "destructive" });
+          return;
+        }
+
+        const resp = await fetch(`${API_BASE}/users/change-password/`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+      }
+
+      if (section === 'Security Policies') {
+        const resp = await fetch(`${API_BASE}/settings/`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(systemSettings),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+      }
+
+      if (section === 'Detection') {
+        const resp = await fetch(`${API_BASE}/settings/`, {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(detectionSettings),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+      }
+
+      toast({
+        title: "Settings Updated",
+        description: `${section} settings have been saved successfully.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Save Failed",
+        description: err?.message ?? "Could not save settings. Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  const handleCreateOperator = async () => {
+    if (!newOperator.email || !newOperator.password) {
+      toast({
+        title: "Validation Error",
+        description: "Email and password are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCreatingOperator(true);
+    try {
+      const resp = await fetch(`${API_BASE}/users/create-operator/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(newOperator),
+      });
+
+      const ctype = resp.headers.get('content-type') || '';
+      let json: any = null;
+
+      if (ctype.includes('application/json')) {
+        json = await resp.json();
+      } else {
+        // Non-JSON (likely HTML error page) — include text in error for debugging
+        const text = await resp.text();
+        throw new Error(`Unexpected non-JSON response from server: ${text.slice(0, 1000)}`);
+      }
+
+      if (!resp.ok) {
+        throw new Error(json?.error || json?.detail || "Failed to create operator.");
+      }
+
+      toast({
+        title: newOperator.role === 'admin' ? 'Administrator Created' : 'Operator Created',
+        description: json.detail ?? `User ${newOperator.name || newOperator.email} has been added.`,
+      });
+      setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
+      setShowAddOperator(false);
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err?.message ?? "Could not create operator.",
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingOperator(false);
+    }
   };
 
   return (
@@ -60,7 +331,7 @@ const Settings = () => {
         </Badge>
       </div>
 
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={(v: string) => { setActiveTab(v); setSearchParams({ tab: v }); }} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2 lg:grid-cols-7">
           <TabsTrigger value="profile" className="gap-2">
             <User className="w-4 h-4" />
@@ -128,7 +399,9 @@ const Settings = () => {
                 <Label htmlFor="bio">Bio / Notes</Label>
                 <Input id="bio" placeholder="Optional personal notes" />
               </div>
-              <Button onClick={() => handleSave('Profile')}>Save Profile</Button>
+              <Button onClick={() => handleSave('Profile')} disabled={savingSection === 'Profile'}>
+                {savingSection === 'Profile' ? 'Saving...' : 'Save Profile'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -142,19 +415,45 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="current-password">Current Password</Label>
-                  <Input id="current-password" type="password" />
+                  <Input id="current-password" type={showCurrentPassword ? 'text' : 'password'} />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword((s) => !s)}
+                    className="absolute right-3 top-9 text-muted-foreground"
+                    aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="new-password">New Password</Label>
-                  <Input id="new-password" type="password" />
+                  <Input id="new-password" type={showNewPassword ? 'text' : 'password'} />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((s) => !s)}
+                    className="absolute right-3 top-9 text-muted-foreground"
+                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="confirm-password">Confirm New Password</Label>
-                  <Input id="confirm-password" type="password" />
+                  <Input id="confirm-password" type={showConfirmPassword ? 'text' : 'password'} />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((s) => !s)}
+                    className="absolute right-3 top-9 text-muted-foreground"
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <Button onClick={() => handleSave('Password')}>Update Password</Button>
+                <Button onClick={() => handleSave('Password')} disabled={savingSection === 'Password'}>
+                  {savingSection === 'Password' ? 'Saving...' : 'Update Password'}
+                </Button>
               </div>
 
               <Separator />
@@ -209,7 +508,7 @@ const Settings = () => {
                 {isAdmin ? 'Global Notification Settings' : 'Personal Notification Preferences'}
               </CardTitle>
               <CardDescription>
-                {isAdmin 
+                {isAdmin
                   ? 'Configure system-wide notification rules and templates'
                   : 'Choose how you want to receive notifications'}
               </CardDescription>
@@ -297,7 +596,9 @@ const Settings = () => {
                 )}
               </div>
 
-              <Button onClick={() => handleSave('Notifications')}>Save Preferences</Button>
+              <Button onClick={() => handleSave('Notifications')} disabled={savingSection === 'Notifications'}>
+                {savingSection === 'Notifications' ? 'Saving...' : 'Save Preferences'}
+              </Button>
 
               {!isAdmin && (
                 <Alert>
@@ -429,7 +730,9 @@ const Settings = () => {
                 </div>
               </div>
 
-              <Button onClick={() => handleSave('UI Preferences')}>Save Preferences</Button>
+              <Button onClick={() => handleSave('UI Preferences')} disabled={savingSection === 'UI Preferences'}>
+                {savingSection === 'UI Preferences' ? 'Saving...' : 'Save Preferences'}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -447,34 +750,143 @@ const Settings = () => {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Alert className="mb-4">
-                  <Monitor className="h-4 w-4" />
-                  <AlertDescription>
-                    <strong>YOLOv11 Backend Configuration:</strong> Detection thresholds and processing parameters are 
-                    preconfigured at the backend level for optimal performance. Contact system administrator for backend 
-                    parameter adjustments.
-                  </AlertDescription>
-                </Alert>
+              <CardContent className="space-y-6">
 
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Camera className="w-4 h-4" />
-                      Camera Management
-                    </Label>
-                    <div className="space-y-2">
-                      <Button variant="outline" className="w-full justify-start">
-                        <Camera className="w-4 h-4 mr-2" />
-                        Add New Camera
-                      </Button>
-                      <Button variant="outline" className="w-full justify-start">
-                        <Eye className="w-4 h-4 mr-2" />
-                        View All Cameras
-                      </Button>
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confidence-threshold">
+                    Confidence Threshold — <span className="text-primary font-semibold">
+                      {isNaN(detectionSettings.confidence_threshold)
+                        ? '60'
+                        : (detectionSettings.confidence_threshold * 100).toFixed(0)}%
+                    </span>
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Minimum confidence YOLO must have before flagging a violation. Lower = more detections, more false positives.
+                  </p>
+                  <input
+                    id="confidence-threshold"
+                    type="range"
+                    min="0.30"
+                    max="0.95"
+                    step="0.05"
+                    value={isNaN(detectionSettings.confidence_threshold) ? 0.60 : detectionSettings.confidence_threshold}
+                    onChange={(e) =>
+                      setDetectionSettings(s => ({ ...s, confidence_threshold: parseFloat(e.target.value) }))
+                    }
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>30% (Sensitive)</span>
+                    <span>95% (Strict)</span>
                   </div>
                 </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label htmlFor="send-cooldown">
+                    Alert Cooldown — <span className="text-primary font-semibold">
+                      {isNaN(detectionSettings.send_cooldown_seconds)
+                        ? '3.0'
+                        : detectionSettings.send_cooldown_seconds}s
+                    </span>
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Minimum seconds between violation alerts sent to the server. Prevents duplicate detections.
+                  </p>
+                  <input
+                    id="send-cooldown"
+                    type="range"
+                    min="1"
+                    max="30"
+                    step="0.5"
+                    value={isNaN(detectionSettings.send_cooldown_seconds) ? 3.0 : detectionSettings.send_cooldown_seconds}
+                    onChange={(e) =>
+                      setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))
+                    }
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>1s (Fast)</span>
+                    <span>30s (Slow)</span>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label htmlFor="ocr-confidence">
+                    OCR Confidence — <span className="text-primary font-semibold">
+                      {isNaN(detectionSettings.ocr_confidence)
+                        ? '20'
+                        : (detectionSettings.ocr_confidence * 100).toFixed(0)}%
+                    </span>
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Minimum confidence EasyOCR must have to accept a plate reading. Lower = more plate reads, more errors.
+                  </p>
+                  <input
+                    id="ocr-confidence"
+                    type="range"
+                    min="0.10"
+                    max="0.90"
+                    step="0.05"
+                    value={isNaN(detectionSettings.ocr_confidence) ? 0.20 : detectionSettings.ocr_confidence}
+                    onChange={(e) =>
+                      setDetectionSettings(s => ({ ...s, ocr_confidence: parseFloat(e.target.value) }))
+                    }
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>10% (Permissive)</span>
+                    <span>90% (Strict)</span>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label htmlFor="data-retention">Data Retention (days)</Label>
+                  <p className="text-sm text-muted-foreground">
+                    How many days to keep violation records in the database before auto-deletion.
+                  </p>
+                  <Input
+                    id="data-retention"
+                    type="number"
+                    min="7"
+                    max="365"
+                    value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
+                    onChange={(e) =>
+                      setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))
+                    }
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Camera className="w-4 h-4" />
+                    Camera Management
+                  </Label>
+                  <div className="space-y-2">
+                    <Button variant="outline" className="w-full justify-start">
+                      <Camera className="w-4 h-4 mr-2" />
+                      Add New Camera
+                    </Button>
+                    <Button variant="outline" className="w-full justify-start" onClick={() => navigate('/cameras')}>
+                      <Eye className="w-4 h-4 mr-2" />
+                      View All Cameras
+                    </Button>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => handleSave('Detection')}
+                  disabled={savingSection === 'Detection'}
+                >
+                  {savingSection === 'Detection' ? 'Saving...' : 'Save Detection Settings'}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -515,20 +927,40 @@ const Settings = () => {
                     <Label htmlFor="auto-logout">Auto Logout</Label>
                     <p className="text-sm text-muted-foreground">Automatically log out inactive users</p>
                   </div>
-                  <Switch id="auto-logout" defaultChecked />
+                  <Switch
+                    id="auto-logout"
+                    checked={systemSettings.auto_logout}
+                    onCheckedChange={(v) => setSystemSettings(s => ({ ...s, auto_logout: v }))}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="session-timeout">Session Timeout (minutes)</Label>
-                  <Input id="session-timeout" type="number" defaultValue="30" min="5" max="120" />
+                  <Input
+                    id="session-timeout"
+                    type="number"
+                    value={systemSettings.session_timeout}
+                    min="5"
+                    max="120"
+                    onChange={(e) => setSystemSettings(s => ({ ...s, session_timeout: Number(e.target.value) }))}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="password-policy">Password Minimum Length</Label>
-                  <Input id="password-policy" type="number" defaultValue="8" min="6" max="32" />
+                  <Input
+                    id="password-policy"
+                    type="number"
+                    value={systemSettings.password_min_length}
+                    min="6"
+                    max="32"
+                    onChange={(e) => setSystemSettings(s => ({ ...s, password_min_length: Number(e.target.value) }))}
+                  />
                 </div>
 
-                <Button onClick={() => handleSave('Security Policies')}>Save Changes</Button>
+                <Button onClick={() => handleSave('Security Policies')} disabled={savingSection === 'Security Policies'}>
+                  {savingSection === 'Security Policies' ? 'Saving...' : 'Save Changes'}
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -556,18 +988,220 @@ const Settings = () => {
                   <Users className="w-4 h-4 mr-2" />
                   Add Operator
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
+                {/* ── Manage Users toggle button ── */}
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={toggleManageUsers}
+                >
                   <Users className="w-4 h-4 mr-2" />
                   Manage Users
+                  {showManageUsers
+                    ? <ChevronUp className="w-4 h-4 ml-auto" />
+                    : <ChevronDown className="w-4 h-4 ml-auto" />}
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
+
+                {/* ── Inline users table ── */}
+                {showManageUsers && (
+                  <div className="border rounded-lg p-4 space-y-3 bg-muted/40">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-sm">All Users</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={loadUsers}
+                        disabled={loadingUsers}
+                        className="h-7 px-2 text-xs"
+                      >
+                        <RefreshCw className={`w-3 h-3 mr-1 ${loadingUsers ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </Button>
+                    </div>
+
+                    {loadingUsers && usersList.length === 0 ? (
+                      <div className="flex justify-center py-6">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                      </div>
+                    ) : usersList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No users found.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Name</th>
+                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Email</th>
+                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Role</th>
+                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Status</th>
+                              <th className="text-left py-2 font-medium text-muted-foreground">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {usersList.map((u) => {
+                              const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username;
+                              const role = u.profile?.role ?? 'tmc_operator';
+                              const accStatus = u.profile?.status ?? 'approved';
+                              const isCurrentUser = currentUser?.id === u.id;
+                              const isAdminUser = role === 'admin';
+                              return (
+                                <tr key={u.id} className="border-b border-border/50 last:border-0">
+                                  <td className="py-2 pr-3">
+                                    <p className="font-medium">{fullName}</p>
+                                    <p className="text-xs text-muted-foreground">@{u.username}</p>
+                                  </td>
+                                  <td className="py-2 pr-3 text-muted-foreground">{u.email || '—'}</td>
+                                  <td className="py-2 pr-3">
+                                    <Badge
+                                      variant={isAdminUser ? 'default' : 'secondary'}
+                                      className="text-xs"
+                                    >
+                                      {isAdminUser ? 'Admin' : 'TMC Operator'}
+                                    </Badge>
+                                  </td>
+                                  <td className="py-2 pr-3">
+                                    <Badge
+                                      variant={
+                                        accStatus === 'approved' ? 'default'
+                                          : accStatus === 'pending' ? 'secondary'
+                                            : 'destructive'
+                                      }
+                                      className="text-xs"
+                                    >
+                                      {accStatus.charAt(0).toUpperCase() + accStatus.slice(1)}
+                                    </Badge>
+                                  </td>
+                                  <td className="py-2">
+                                    {isCurrentUser || isAdminUser ? (
+                                      <span className="text-xs text-muted-foreground italic">
+                                        {isCurrentUser ? 'You' : 'Protected'}
+                                      </span>
+                                    ) : (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                        disabled={deletingUserId === u.id}
+                                        onClick={() => handleDeleteUser(u.id, fullName)}
+                                        title={`Delete ${fullName}`}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* ── Pending Registrations toggle button ── */}
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={togglePending}
+                >
                   <Shield className="w-4 h-4 mr-2" />
                   Pending Registrations
+                  {pendingList.length > 0 && !showPending && (
+                    <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                      {pendingList.length}
+                    </Badge>
+                  )}
+                  {showPending
+                    ? <ChevronUp className="w-4 h-4 ml-auto" />
+                    : <ChevronDown className="w-4 h-4 ml-auto" />}
                 </Button>
+
+                {/* ── Inline pending registrations panel ── */}
+                {showPending && (
+                  <div className="border rounded-lg p-4 space-y-3 bg-muted/40">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-sm">
+                        Pending Registrations
+                        {pendingList.length > 0 && (
+                          <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                            {pendingList.length}
+                          </Badge>
+                        )}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={loadPending}
+                        disabled={loadingPending}
+                        className="h-7 px-2 text-xs"
+                      >
+                        <RefreshCw className={`w-3 h-3 mr-1 ${loadingPending ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </Button>
+                    </div>
+
+                    {loadingPending ? (
+                      <div className="flex justify-center py-6">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                      </div>
+                    ) : pendingList.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
+                        <Shield className="w-8 h-8 opacity-30" />
+                        <p className="text-sm">No pending registrations. You're all caught up!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {pendingList.map((u) => {
+                          const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username;
+                          const org = u.profile?.organization;
+                          const joinedDate = u.profile?.created_at
+                            ? new Date(u.profile.created_at).toLocaleDateString()
+                            : null;
+                          const isProcessing = processingId === u.id;
+                          return (
+                            <div
+                              key={u.id}
+                              className="flex items-start justify-between gap-3 rounded-md border border-border bg-card px-4 py-3"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium truncate">{fullName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                                {org && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">🏢 {org}</p>
+                                )}
+                                {joinedDate && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">Registered: {joinedDate}</p>
+                                )}
+                              </div>
+                              <div className="flex gap-2 shrink-0 pt-0.5">
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-3 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                  disabled={isProcessing}
+                                  onClick={() => handleApproveOrReject(u.id, 'approve', fullName)}
+                                >
+                                  {isProcessing ? '...' : 'Approve'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-7 px-3 text-xs"
+                                  disabled={isProcessing}
+                                  onClick={() => handleApproveOrReject(u.id, 'reject', fullName)}
+                                >
+                                  {isProcessing ? '...' : 'Reject'}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {showAddOperator && (
                   <div className="mt-4 border rounded-lg p-4 space-y-3 bg-muted/40">
-                    <p className="font-semibold text-sm">Add New TMC Operator</p>
+                    <p className="font-semibold text-sm">Add New User</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label htmlFor="op-name">Full Name</Label>
@@ -589,24 +1223,45 @@ const Settings = () => {
                           onChange={(e) =>
                             setNewOperator((prev) => ({ ...prev, email: e.target.value }))
                           }
-                          placeholder="operator@example.com"
+                          placeholder="user@example.com"
                         />
                       </div>
                       <div className="space-y-1 md:col-span-2">
                         <Label htmlFor="op-password">Temporary Password</Label>
-                        <Input
-                          id="op-password"
-                          type="password"
-                          value={newOperator.password}
-                          onChange={(e) =>
-                            setNewOperator((prev) => ({ ...prev, password: e.target.value }))
-                          }
-                          placeholder="Generate or set a temporary password"
-                        />
+                        <div className="relative">
+                          <Input
+                            id="op-password"
+                            type={showOpPassword ? 'text' : 'password'}
+                            value={newOperator.password}
+                            onChange={(e) =>
+                              setNewOperator((prev) => ({ ...prev, password: e.target.value }))
+                            }
+                            placeholder="Generate or set a temporary password"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowOpPassword((s) => !s)}
+                            className="absolute right-3 top-2 text-muted-foreground"
+                            aria-label={showOpPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showOpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-1 md:col-span-2">
                         <Label>Role</Label>
-                        <Input value="TMC Operator" disabled />
+                        <Select 
+                          value={newOperator.role} 
+                          onValueChange={(val) => setNewOperator((prev) => ({ ...prev, role: val }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tmc_operator">TMC Operator</SelectItem>
+                            <SelectItem value="admin">Administrator</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
@@ -615,13 +1270,13 @@ const Settings = () => {
                         size="sm"
                         onClick={() => {
                           setShowAddOperator(false);
-                          setNewOperator({ name: '', email: '', password: '' });
+                          setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
                         }}
                       >
                         Cancel
                       </Button>
-                      <Button size="sm" onClick={handleCreateOperator}>
-                        Save Operator
+                      <Button size="sm" onClick={handleCreateOperator} disabled={creatingOperator}>
+                        {creatingOperator ? 'Creating...' : 'Save User'}
                       </Button>
                     </div>
                   </div>
@@ -636,8 +1291,8 @@ const Settings = () => {
         <Alert className="bg-muted">
           <Eye className="h-4 w-4" />
           <AlertDescription>
-            <strong>Read-Only Access:</strong> You can view system detection thresholds, camera list, global notification rules, 
-            storage status, and backup schedules in their respective sections, but cannot modify them. Contact an administrator 
+            <strong>Read-Only Access:</strong> You can view system detection thresholds, camera list, global notification rules,
+            storage status, and backup schedules in their respective sections, but cannot modify them. Contact an administrator
             to request changes to system-wide settings.
           </AlertDescription>
         </Alert>

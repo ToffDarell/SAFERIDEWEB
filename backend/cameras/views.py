@@ -1,10 +1,11 @@
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework import viewsets, status
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from django.http import StreamingHttpResponse
-from .models import Camera
-from .serializers import CameraSerializer
+from .models import Camera, SystemSettings
+from .serializers import CameraSerializer, SystemSettingsSerializer
 import cv2
 import time
 import logging
@@ -37,7 +38,26 @@ class CameraViewSet(viewsets.ModelViewSet):
     serializer_class = CameraSerializer
     permission_classes = [IsAuthenticated]
 
-    @action(detail=True, methods=['get'], permission_classes=[AllowAny])
+
+class SystemSettingsView(APIView):
+    """GET or PATCH the singleton system settings row."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        settings_obj = SystemSettings.get_settings()
+        return Response(SystemSettingsSerializer(settings_obj).data)
+
+    def patch(self, request):
+        if not request.user.is_staff:
+            return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
+        settings_obj = SystemSettings.get_settings()
+        serializer = SystemSettingsSerializer(settings_obj, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
     def stream(self, request, pk=None):
         """
         Stream camera feed as MJPEG with YOLO detection

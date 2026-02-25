@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from django.contrib.auth.models import User
 from .models import UserProfile
 from .serializers import UserSerializer, UserRegistrationSerializer
@@ -12,6 +12,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_permissions(self):
+        # Allow public registration, but serializer will enforce role/status rules.
         if self.action == 'create':
             return [AllowAny()]
         return super().get_permissions()
@@ -83,3 +84,95 @@ class UserViewSet(viewsets.ModelViewSet):
         profile.save()
         
         return Response({"message": f"User {user.username} rejected"})
+    
+    @action(detail=False, methods=['post'], url_path='create-operator')
+    def create_operator(self, request):
+        """Admin creates a TMC operator account directly (auto-approved)."""
+        if not request.user.is_staff:
+            return Response(
+                {"error": "Admin access required"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        name     = request.data.get("name", "").strip()
+        email    = request.data.get("email", "").strip()
+        password = request.data.get("password", "").strip()
+
+        if not email or not password:
+            return Response(
+                {"error": "Email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {"error": "A user with this email already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # use email prefix as username if no name given
+        username = name.replace(" ", "_").lower() if name else email.split("@")[0]
+        # make username unique if it already exists
+        base_username = username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+        # split name into first/last
+        name_parts = name.split(" ", 1)
+        first_name = name_parts[0] if name_parts else ""
+        last_name  = name_parts[1] if len(name_parts) > 1 else ""
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+
+        # auto-approve the operator profile
+        UserProfile.objects.filter(user=user).update(
+            role='tmc_operator',
+            status='approved',
+            approved_by=request.user,
+        )
+
+        return Response(
+            {"detail": f"Operator '{username}' created successfully."},
+            status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=False, methods=['patch'], url_path='me')
+    def update_me(self, request):
+        """Update current user's own profile."""
+        user = request.user
+        user.first_name = request.data.get('first_name', user.first_name)
+        user.last_name  = request.data.get('last_name',  user.last_name)
+        user.email      = request.data.get('email',      user.email)
+        user.save()
+        return Response({"detail": "Profile updated."})
+
+    @action(detail=False, methods=['post'], url_path='change-password')
+    def change_password(self, request):
+        """Change current user's password."""
+        user            = request.user
+        current_password = request.data.get('current_password', '')
+        new_password     = request.data.get('new_password', '')
+
+        if not user.check_password(current_password):
+            return Response(
+                {"error": "Current password is incorrect."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(new_password) < 8:
+            return Response(
+                {"error": "New password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+        return Response({"detail": "Password changed successfully."})
+

@@ -35,7 +35,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Remove extra fields
         validated_data.pop('password_confirm')
-        role = validated_data.pop('role', 'tmc_operator')
+        # Determine role: if request is present and not an admin, force 'tmc_operator'
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        incoming_role = validated_data.pop('role', 'tmc_operator')
+        if request is not None and getattr(request, 'user', None) and request.user.is_authenticated:
+            # If authenticated admin is creating, allow requested role
+            role = incoming_role if request.user.is_staff else 'tmc_operator'
+        else:
+            # Public registration -> always operator
+            role = 'tmc_operator'
         phone = validated_data.pop('phone', '')
         organization = validated_data.pop('organization', '')
         
@@ -48,13 +56,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             last_name=validated_data.get('last_name', '')
         )
         
-        # Create profile
-        UserProfile.objects.create(
+        # update_or_create handles the post_save signal already creating a blank
+        # profile — atomically sets all fields in one step
+        UserProfile.objects.update_or_create(
             user=user,
-            role=role,
-            phone=phone,
-            organization=organization,
-            status='approved' if role == 'admin' else 'pending'  # Auto-approve admins
+            defaults={
+                'role':         role,
+                'phone':        phone,
+                'organization': organization,
+                'status':       'approved' if role == 'admin' and request is not None and getattr(request, 'user', None) and request.user.is_staff else 'pending',
+            }
         )
-        
+
         return user

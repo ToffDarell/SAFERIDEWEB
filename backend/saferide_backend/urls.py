@@ -3,6 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from cameras.views import SystemSettingsView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -19,7 +20,8 @@ urlpatterns = [
     # API endpoints
     path("api/cameras/", include("cameras.urls")),
     path("api/violations/", include("violations.urls")),
-    path("api/users/", include("users.urls")), 
+    path("api/users/", include("users.urls")),
+    path("api/settings/", SystemSettingsView.as_view(), name="system-settings"),
 ]
 
 # Serve media files in development

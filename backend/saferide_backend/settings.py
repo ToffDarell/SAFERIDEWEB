@@ -31,7 +31,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',  # Required for allauth
-    
+    'django_extensions', 
     # REST Framework
     'rest_framework',
     'rest_framework_simplejwt',
@@ -56,7 +56,7 @@ INSTALLED_APPS = [
     'dj_rest_auth.registration',
 
     # SAFERIDE APPS
-    'users',
+    'users.apps.UsersConfig',  # Use the AppConfig to ensure signals are registered
     'cameras',
     'violations',
 ]
@@ -128,6 +128,8 @@ AUTH_PASSWORD_VALIDATORS = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -142,7 +144,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50,
+    'PAGE_SIZE': 10,
 }
 
 # JWT Settings
@@ -193,3 +195,6 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Force trailing slash
+APPEND_SLASH = True

@@ -7,12 +7,13 @@ export interface Violation {
   detected_at: string;
   detection_status: 'compliant' | 'violation';
   confidence_score: number;
-  classification: 'no_helmet' | 'nutshell' | 'half_face_helmet' | 'full_face_helmet';
+  classification: 'no_helmet' | 'nutshell' | 'helmet';
   plate_number: string | null;
   evidence_image: string | null;
   bounding_box: any;
   detected_objects: any;
   processed_at: string;
+  review_status: 'pending' | 'approved' | 'rejected';
 }
 
 export interface ViolationFilters {
@@ -52,7 +53,9 @@ export const violationsService = {
       total,
       violations: violationCount,
       compliant: compliantCount,
-      detectionRate: total > 0 ? ((total / total) * 100).toFixed(1) : '0',
+      detectionRate: (violationCount + compliantCount) > 0
+        ? ((compliantCount / (violationCount + compliantCount)) * 100).toFixed(1)
+        : '0',
     };
   },
 
@@ -60,6 +63,14 @@ export const violationsService = {
   async createViolation(data: FormData) {
     const response = await apiClient.post('/violations/', data, {
       headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  // Update violation (for review)
+    async updateReviewStatus(id: number, status: 'pending' | 'reviewed' | 'resolved') {
+    const response = await apiClient.patch(`/violations/${id}/`, {
+      review_status: status,
     });
     return response.data;
   },

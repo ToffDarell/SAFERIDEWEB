@@ -7,6 +7,7 @@ import { FileText, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { violationsService } from '@/services/violations';
+import apiClient from '@/services/api';
 
 const Reports = () => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -26,19 +27,8 @@ const Reports = () => {
       const data = await violationsService.getViolations();
       const violationsData = data.results || [];
       
-      // Load persisted review statuses from localStorage (same as Violations page)
-      const savedStatuses = JSON.parse(localStorage.getItem('violationStatuses') || '{}');
-      
-      // Merge saved statuses with fetched data
-      const mergedViolations = violationsData.map((v: any) => ({
-        ...v,
-        reviewStatus: savedStatuses[v.id] || v.reviewStatus || 'Pending'
-      }));
-      
-      setViolations(mergedViolations);
-      
-      // Calculate real weekly data
-      calculateWeeklyData(mergedViolations);
+      setViolations(violationsData);
+      calculateWeeklyData(violationsData);
     } catch (error) {
       toast({
         title: "Error loading data",
@@ -51,7 +41,6 @@ const Reports = () => {
   };
 
   const calculateWeeklyData = (violationsData: any[]) => {
-    // Get the last 7 days
     const today = new Date();
     const last7Days = [];
     
@@ -61,7 +50,6 @@ const Reports = () => {
       last7Days.push(date);
     }
     
-    // Count violations per day
     const weeklyStats = last7Days.map(date => {
       const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
       const dateStr = date.toDateString();
@@ -81,18 +69,51 @@ const Reports = () => {
     setWeeklyData(weeklyStats);
   };
 
-  const handleGenerateReport = () => {
-    toast({
-      title: 'Report Generation Started',
-      description: 'Generate Completed',
-    });
+  const handleGenerateReport = async (format: 'csv' | 'pdf') => {
+    try {
+      toast({
+        title: 'Generating Report...',
+        description: `Preparing your ${format.toUpperCase()} file`,
+      });
+
+      const response = await apiClient.get(
+        `/violations/export/?format=${format}`,
+        { responseType: 'blob' }
+      );
+
+      const blob = new Blob([response.data], {
+        type: format === 'pdf' ? 'application/pdf' : 'text/csv',
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href    = url;
+      a.download = `saferide_violations_${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Export Complete',
+        description: `violations.${format} downloaded successfully`,
+      });
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: 'Export Failed',
+        description: 'Could not generate report. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
-  // Calculate stats using merged statuses
   const totalViolations = violations.filter(v => v.detection_status === 'violation').length;
-  const reviewedViolations = violations.filter(v => v.reviewStatus === 'Reviewed').length;
-  const resolvedViolations = violations.filter(v => v.reviewStatus === 'Resolved').length;
-  const pendingViolations = violations.filter(v => !v.reviewStatus || v.reviewStatus === 'Pending').length;
+  const reviewedViolations = violations.filter(v => v.review_status === 'reviewed').length;
+  const resolvedViolations = violations.filter(v => v.review_status === 'resolved').length;
+  const pendingViolations = violations.filter(
+    v => !v.review_status || v.review_status === 'pending'
+  ).length;
 
   const summaryData = [
     { title: 'Total Violations', value: totalViolations.toString(), icon: AlertCircle, trend: '+12%', color: 'text-destructive' },
@@ -106,7 +127,9 @@ const Reports = () => {
     plate: v.plate_number || 'N/A',
     date: new Date(v.detected_at).toLocaleDateString(),
     location: v.camera_name || 'Unknown',
-    status: v.reviewStatus || 'Pending'
+    status: v.review_status
+      ? v.review_status.charAt(0).toUpperCase() + v.review_status.slice(1)
+      : 'Pending'
   }));
 
   if (isLoading) {
@@ -131,10 +154,16 @@ const Reports = () => {
         </div>
         <div className="flex items-center gap-3">
           {!isOperator && (
-            <Button onClick={handleGenerateReport}>
-              <FileText className="w-4 h-4 mr-2" />
-              Generate Report
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => handleGenerateReport('csv')} variant="outline">
+                <FileText className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button onClick={() => handleGenerateReport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export PDF
+              </Button>
+            </div>
           )}
           <FileText className="w-8 h-8 text-primary" />
         </div>

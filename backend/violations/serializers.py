@@ -10,6 +10,6 @@ class ViolationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'camera', 'camera_name', 'detected_at', 'detection_status',
             'confidence_score', 'classification', 'plate_number',
-            'evidence_image', 'bounding_box', 'detected_objects', 'processed_at'
+            'evidence_image', 'bounding_box', 'detected_objects', 'processed_at', 'review_status',
         ]
         read_only_fields = ['id', 'processed_at']

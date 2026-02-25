@@ -36,7 +36,11 @@ const Dashboard = () => {
       const totalViolations = violationsData.count || 0;
       const activeCameras = cameras.filter((c: any) => c.status === 'active').length;
       const platesRecognized = violations.filter((v: any) => v.plate_number).length;
-      const detectionRate = totalViolations > 0 ? '95.2' : '0';
+      const compliantCount = violations.filter((v: any) => v.detection_status === 'compliant').length;
+      const totalDetected = totalViolations + compliantCount;
+      const detectionRate = totalDetected > 0
+        ? ((compliantCount / totalDetected) * 100).toFixed(1)
+        : '0';
 
       setStats([
         { title: 'Total Violations', value: totalViolations.toString(), icon: AlertTriangle, trend: '+12.5%', color: 'text-destructive' },

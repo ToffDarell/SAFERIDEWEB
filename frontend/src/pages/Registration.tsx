@@ -5,16 +5,19 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Camera, ArrowLeft } from 'lucide-react';
+import { Camera, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usersService } from '@/services/users';
 import { googleAuthService } from '@/services/googleAuth';
+import { authService } from '@/services/auth';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 
 const Registration = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [formData, setFormData] = useState<{
   username: string;
@@ -35,7 +38,7 @@ const Registration = () => {
   lastName: '',
   phone: '',
   organization: '',
-  role: 'tmc_operator',
+  role: 'admin',
 });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,7 +48,7 @@ const Registration = () => {
     });
   };
 
-  const handleRoleChange = (value: 'admin' | 'tmc_operator') => {
+  const handleRoleChange = (value: 'admin') => {
     setFormData({
       ...formData,
       role: value,
@@ -88,7 +91,7 @@ const Registration = () => {
     } catch (error: any) {
       toast({
         title: 'Registration Failed',
-        description: error.response?.data?.error || 'Failed to create account. Please try again.',
+        description: error.message || 'Failed to create account. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -109,12 +112,34 @@ const Registration = () => {
     setIsLoading(true);
 
     try {
-      const result = await googleAuthService.loginWithGoogle(credentialResponse.credential);
+      const result = await googleAuthService.loginWithGoogle(credentialResponse.credential, formData.role, true);
       
       if (result.success) {
+        // Enforce account status check
+        if (result.user.status === 'pending') {
+          authService.logout();
+          toast({
+            title: 'Account Pending',
+            description: 'Your account registration was successful but is awaiting admin approval.',
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        if (result.user.status === 'rejected') {
+          authService.logout();
+          toast({
+            title: 'Account Rejected',
+            description: 'Your account registration was rejected. Please contact support.',
+            variant: 'destructive',
+          });
+          setIsLoading(false);
+          return;
+        }
+
         toast({
           title: 'Registration Successful',
-          description: `Welcome, ${result.user.name}! Your account is pending admin approval.`,
+          description: `Welcome, ${result.user.name}!`,
         });
 
         navigate('/dashboard');
@@ -266,29 +291,45 @@ const Registration = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
                     name="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={formData.password}
                     onChange={handleInputChange}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-3 top-9 text-muted-foreground"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <Input
                     id="confirmPassword"
                     name="confirmPassword"
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={formData.confirmPassword}
                     onChange={handleInputChange}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((s) => !s)}
+                    className="absolute right-3 top-9 text-muted-foreground"
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 

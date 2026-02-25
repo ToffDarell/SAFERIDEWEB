@@ -3,9 +3,16 @@ from cameras.models import Camera
 
 
 class Violation(models.Model):
+    REVIEW_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('reviewed', 'Reviewed'),
+        ('resolved', 'Resolved'),
+    ]
+    
     DETECTION_STATUS_CHOICES = [
         ('compliant', 'Compliant'),
         ('violation', 'Violation'),
+        
     ]
     
     CLASSIFICATION_CHOICES = [
@@ -25,6 +32,11 @@ class Violation(models.Model):
     bounding_box = models.JSONField(null=True, blank=True)
     detected_objects = models.JSONField(null=True, blank=True)
     processed_at = models.DateTimeField(auto_now_add=True)
+    review_status = models.CharField(
+        max_length=20,
+        choices=REVIEW_STATUS_CHOICES,
+        default='pending'
+    )
     
     class Meta:
         db_table = 'violations'

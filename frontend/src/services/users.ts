@@ -22,8 +22,16 @@ export const usersService = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Registration failed');
+      const error = await response.json().catch(() => ({}));
+      // DRF can return flat string errors (detail/error) or field-level objects
+      const message =
+        error.detail ||
+        error.error ||
+        Object.entries(error)
+          .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs[0] : msgs}`)
+          .join(' | ') ||
+        'Registration failed';
+      throw new Error(message);
     }
 
     return response.json();

@@ -54,11 +54,22 @@ class GoogleAuthCallback(APIView):
                 }
             )
             
+            is_register = request.data.get('is_register', False)
+            if is_register and not created:
+                return Response(
+                    {'error': 'An account with this Google email already exists. Please log in instead.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            requested_role = request.data.get('role', 'tmc_operator')
+            if requested_role not in ['admin', 'tmc_operator']:
+                requested_role = 'tmc_operator'
+
             # Create or update UserProfile
             user_profile, _ = UserProfile.objects.get_or_create(
                 user=user,
                 defaults={
-                    'role': 'tmc_operator',  # Default role
+                    'role': requested_role,
                     'status': 'pending',  # Requires admin approval
                 }
             )

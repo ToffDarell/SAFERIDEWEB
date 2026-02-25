@@ -1,7 +1,10 @@
-from rest_framework.routers import SimpleRouter
-from .views import ViolationViewSet
+from django.urls import path
+from rest_framework.routers import DefaultRouter
+from .views import ViolationViewSet, ViolationExportView
 
-router = SimpleRouter()
+router = DefaultRouter()
 router.register(r'', ViolationViewSet, basename='violation')
 
-urlpatterns = router.urls
+urlpatterns = [
+    path('export/', ViolationExportView.as_view(), name='violation-export'),
+] + router.urls

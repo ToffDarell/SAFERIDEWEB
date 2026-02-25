@@ -2,10 +2,12 @@ import apiClient from './api';
 
 export const googleAuthService = {
   // Handle Google login callback
-  async loginWithGoogle(credential: string) {
+  async loginWithGoogle(credential: string, role?: string, isRegister: boolean = false) {
     try {
       const response = await apiClient.post('/users/auth/google/callback/', {
-        token: credential
+        token: credential,
+        role: role,
+        is_register: isRegister
       });
 
       const { access, refresh, user } = response.data;

@@ -17,20 +17,24 @@ const Violations = () => {
   const [violations, setViolations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
   useEffect(() => {
     loadViolations();
     
-    // Poll for new violations every 10 seconds
     const interval = setInterval(async () => {
-      const data = await violationsService.getViolations();
+      if (currentPage !== 1) return;
+      
+      const data = await violationsService.getViolations({ page: 1 });
       const newViolations = data.results || [];
       
-      // Check for new violations
       newViolations.forEach((newV: any) => {
         const exists = violations.find(v => v.id === newV.id);
         if (!exists && newV.detection_status === 'violation') {
-          // New violation detected - add notification
           const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
           notifications.unshift({
             id: Date.now(),
@@ -48,26 +52,22 @@ const Violations = () => {
       });
       
       setViolations(newViolations);
-    }, 10000); // Check every 10 seconds
+    }, 10000);
     
     return () => clearInterval(interval);
-  }, [violations]);
+  }, [currentPage]);
 
   const loadViolations = async () => {
+    setIsLoading(true);
     try {
-      const data = await violationsService.getViolations();
-      const violationsData = data.results || [];
+      const data = await violationsService.getViolations({ page: currentPage });
+      const violationsList = data.results || [];
+      const count = data.count || 0;
       
-      // Load persisted review statuses from localStorage
-      const savedStatuses = JSON.parse(localStorage.getItem('violationStatuses') || '{}');
+      setTotalItems(count);
+      setTotalPages(Math.ceil(count / 10));
       
-      // Merge saved statuses with fetched data
-      const mergedViolations = violationsData.map((v: any) => ({
-        ...v,
-        reviewStatus: savedStatuses[v.id] || v.reviewStatus || 'Pending'
-      }));
-      
-      setViolations(mergedViolations);
+      setViolations(violationsList);
     } catch (error) {
       toast({
         title: "Error loading violations",
@@ -79,31 +79,43 @@ const Violations = () => {
     }
   };
 
-  const handleStatusUpdate = (violationId: number, newStatus: string) => {
-    // Update state
-    setViolations(prev => 
-      prev.map(v => v.id === violationId ? { ...v, reviewStatus: newStatus } : v)
-    );
-    
-    // Persist to localStorage
-    const savedStatuses = JSON.parse(localStorage.getItem('violationStatuses') || '{}');
-    savedStatuses[violationId] = newStatus;
-    localStorage.setItem('violationStatuses', JSON.stringify(savedStatuses));
-    
-    // Add notification
-    const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
-    notifications.unshift({
-      id: Date.now(),
-      message: `Violation #${violationId} status updated to ${newStatus}`,
-      time: new Date().toISOString(),
-      read: false,
-    });
-    localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
+  const handleStatusUpdate = async (violationId: number, newStatus: string) => {
+    const validStatus = newStatus.toLowerCase() as 'pending' | 'reviewed' | 'resolved';
 
-    toast({
-      title: "Status Updated",
-      description: `Violation #${violationId} marked as ${newStatus}`,
-    });
+    // Step 1: Optimistic UI update immediately
+    setViolations(prev =>
+      prev.map(v => v.id === violationId ? { ...v, review_status: validStatus } : v)
+    );
+
+    try {
+      // Step 2: PATCH to backend
+      await violationsService.updateReviewStatus(violationId, validStatus);
+
+      // Step 3: Notification
+      const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
+      notifications.unshift({
+        id: Date.now(),
+        message: `Violation #${violationId} status updated to ${newStatus}`,
+        time: new Date().toISOString(),
+        read: false,
+      });
+      localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
+
+      toast({
+        title: "Status Updated",
+        description: `Violation #${violationId} marked as ${newStatus}`,
+      });
+    } catch (error) {
+      // Step 4: Revert on failure
+      setViolations(prev =>
+        prev.map(v => v.id === violationId ? { ...v, review_status: 'pending' } : v)
+      );
+      toast({
+        title: "Update Failed",
+        description: "Could not save status. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -222,34 +234,36 @@ const Violations = () => {
                       <TableCell>
                         <Badge 
                           variant={
-                            violation.reviewStatus === 'Resolved' 
+                            violation.review_status === 'resolved'
                               ? 'default' 
-                              : violation.reviewStatus === 'Reviewed' 
+                              : violation.review_status === 'reviewed'
                               ? 'secondary' 
                               : 'destructive'
                           }
                         >
-                          {violation.reviewStatus || 'Pending'}
+                          {violation.review_status
+                            ? violation.review_status.charAt(0).toUpperCase() + violation.review_status.slice(1)
+                            : 'Pending'}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Select 
-                            value={violation.reviewStatus || 'Pending'}
+                            value={violation.review_status || 'pending'}
                             onValueChange={(value) => handleStatusUpdate(violation.id, value)}
                           >
                             <SelectTrigger className="w-32">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Pending">Pending</SelectItem>
-                              <SelectItem value="Reviewed">
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="reviewed">
                                 <div className="flex items-center gap-2">
                                   <Eye className="w-4 h-4" />
                                   Reviewed
                                 </div>
                               </SelectItem>
-                              <SelectItem value="Resolved">
+                              <SelectItem value="resolved">
                                 <div className="flex items-center gap-2">
                                   <CheckCircle className="w-4 h-4" />
                                   Resolved
@@ -263,6 +277,32 @@ const Violations = () => {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border pt-4 mt-4">
+              <div className="text-sm text-muted-foreground">
+                Showing page {currentPage} of {totalPages} ({totalItems} total)
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                >
+                  Previous
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

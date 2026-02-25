@@ -2,27 +2,62 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Camera, Wifi, WifiOff, Activity, Eye } from 'lucide-react';
+import { Camera, Wifi, WifiOff, Activity, Eye, RefreshCw } from 'lucide-react';
 import { camerasService, type Camera as CameraType } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
+
 
 const CameraStatus = () => {
   const { toast } = useToast();
   const [cameras, setCameras] = useState<CameraType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<CameraType | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [violationCounts, setViolationCounts] = useState<Record<number, number>>({});
+
 
   useEffect(() => {
     loadCameras();
-    const interval = setInterval(loadCameras, 5000);
+    const interval = setInterval(loadCameras, 2000);
     return () => clearInterval(interval);
   }, []);
 
+
+  const fetchViolationCounts = async (cameraList: CameraType[]) => {
+    const counts: Record<number, number> = {};
+    const today = new Date().toISOString().split('T')[0];
+
+    await Promise.all(
+      cameraList.map(async (cam) => {
+        try {
+          const res = await fetch(
+            `http://127.0.0.1:8000/api/violations/?camera=${cam.id}&date=${today}`,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+              },
+            }
+          );
+          const data = await res.json();
+          counts[cam.id] = data.count ?? (data.results?.length ?? 0);
+        } catch {
+          counts[cam.id] = 0;
+        }
+      })
+    );
+    setViolationCounts(counts);
+  };
+
+
   const loadCameras = async () => {
+    if (cameras.length > 0) setIsRefreshing(true);
+
     try {
       const data = await camerasService.getCameras();
-      setCameras(data.results || data || []);
+      const list = data.results || data || [];
+      setCameras(list);
+      await fetchViolationCounts(list);
     } catch (error) {
       toast({
         title: "Error loading cameras",
@@ -31,27 +66,29 @@ const CameraStatus = () => {
       });
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
+
 
   const handleCameraClick = async (camera: CameraType) => {
     try {
       const latest = await camerasService.getCamera(camera.id);
 
       if (latest.status !== 'active') {
-        toast({ 
-          title: "Camera Offline", 
-          description: "This camera is currently offline and cannot be viewed.", 
-          variant: "destructive" 
+        toast({
+          title: "Camera Offline",
+          description: "This camera is currently offline and cannot be viewed.",
+          variant: "destructive"
         });
         return;
       }
 
       if (!latest.stream_url) {
-        toast({ 
-          title: "No Stream Available", 
-          description: "This camera does not have a stream URL configured.", 
-          variant: "destructive" 
+        toast({
+          title: "No Stream Available",
+          description: "This camera does not have a stream URL configured.",
+          variant: "destructive"
         });
         return;
       }
@@ -59,27 +96,46 @@ const CameraStatus = () => {
       setSelectedCamera(latest);
       setIsModalOpen(true);
     } catch {
-      toast({ 
-        title: "Error", 
-        description: "Failed to load latest camera data.", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: "Failed to load latest camera data.",
+        variant: "destructive"
       });
     }
   };
 
+
   const getStatusBadge = (status: string) => {
     if (status === 'active') {
-      return <Badge className="bg-primary/20 text-primary border-primary/50">Online</Badge>;
+      return (
+        <Badge className="bg-primary/20 text-primary border-primary/50 flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-primary animate-pulse inline-block" />
+          Online
+        </Badge>
+      );
     }
     return <Badge variant="secondary">Offline</Badge>;
   };
 
+
   const getStatusIcon = (status: string) => {
-    if (status === 'active') {
-      return <Wifi className="w-5 h-5 text-primary" />;
-    }
+    if (status === 'active') return <Wifi className="w-5 h-5 text-primary" />;
     return <WifiOff className="w-5 h-5 text-muted-foreground" />;
   };
+
+
+  const formatLastSeen = (lastSeen: string | null) => {
+    if (!lastSeen) return 'Never';
+    const diff = Date.now() - new Date(lastSeen).getTime();
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 10) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
+
 
   const formatUptime = (lastSeen: string | null) => {
     if (!lastSeen) return 'N/A';
@@ -88,14 +144,18 @@ const CameraStatus = () => {
     return hours < 24 ? '99.8%' : '95.0%';
   };
 
+
   const getStreamUrl = (camera: CameraType) => {
     const token = localStorage.getItem('accessToken');
     return `http://localhost:8000/api/cameras/${camera.id}/stream/?token=${token}`;
   };
 
-  const totalCameras = cameras.length;
+
+  const totalCameras  = cameras.length;
   const onlineCameras = cameras.filter(c => c.status === 'active').length;
-  const avgUptime = cameras.length > 0 ? '98.2%' : '0%';
+  const offlineCameras = totalCameras - onlineCameras;
+  const avgUptime     = cameras.length > 0 ? '98.2%' : '0%';
+
 
   if (isLoading) {
     return (
@@ -108,11 +168,24 @@ const CameraStatus = () => {
     );
   }
 
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold text-foreground">Camera Status</h2>
-        <p className="text-muted-foreground">Monitor all connected CCTV cameras and their operational status</p>
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-foreground">Camera Status</h2>
+          <p className="text-muted-foreground">
+            Monitor all connected CCTV cameras and their operational status
+          </p>
+        </div>
+        {isRefreshing && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            Updating...
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -135,6 +208,9 @@ const CameraStatus = () => {
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Online</p>
                 <h3 className="text-3xl font-bold text-primary mt-2">{onlineCameras}</h3>
+                {offlineCameras > 0 && (
+                  <p className="text-xs text-destructive mt-1">{offlineCameras} offline</p>
+                )}
               </div>
               <Wifi className="w-8 h-8 text-primary" />
             </div>
@@ -165,8 +241,8 @@ const CameraStatus = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {cameras.map((camera) => (
-            <Card 
-              key={camera.id} 
+            <Card
+              key={camera.id}
               className="bg-card border-border hover:border-primary/50 transition-colors cursor-pointer group"
               onClick={() => handleCameraClick(camera)}
             >
@@ -182,7 +258,9 @@ const CameraStatus = () => {
                     </div>
                     <div>
                       <CardTitle className="text-base text-foreground">{camera.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-1">CAM-{String(camera.id).padStart(3, '0')}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        CAM-{String(camera.id).padStart(3, '0')}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -193,26 +271,43 @@ const CameraStatus = () => {
                   </div>
                 </div>
               </CardHeader>
+
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Location:</span>
-                  <span className="text-foreground font-medium">{camera.location || 'Not specified'}</span>
+                  <span className="text-foreground font-medium">
+                    {camera.location || 'Not specified'}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Status:</span>
                   {getStatusBadge(camera.status)}
                 </div>
                 <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Last Seen:</span>
+                  <span className={`font-medium ${
+                    camera.status === 'active' ? 'text-primary' : 'text-muted-foreground'
+                  }`}>
+                    {formatLastSeen(camera.last_seen_at)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Uptime:</span>
-                  <span className="text-accent font-medium">{formatUptime(camera.last_seen_at)}</span>
+                  <span className="text-accent font-medium">
+                    {formatUptime(camera.last_seen_at)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">FPS:</span>
-                  <span className="text-primary font-medium">{camera.status === 'active' ? '30' : '0'}</span>
+                  <span className="text-primary font-medium">
+                    {camera.status === 'active' ? '15' : '0'}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Detections Today:</span>
-                  <span className="text-foreground font-bold">0</span>
+                  <span className="text-foreground font-bold">
+                    {violationCounts[camera.id] ?? 0}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -232,7 +327,7 @@ const CameraStatus = () => {
           <div className="space-y-4">
             <div className="bg-black rounded-lg overflow-hidden aspect-video relative">
               {selectedCamera?.stream_url ? (
-                <img 
+                <img
                   src={getStreamUrl(selectedCamera)}
                   alt="Live Camera Stream"
                   className="w-full h-full object-contain"
@@ -241,7 +336,7 @@ const CameraStatus = () => {
                     target.style.display = 'none';
                     toast({
                       title: "Stream Error",
-                      description: "Failed to load camera stream. The camera might be disconnected.",
+                      description: "Failed to load camera stream.",
                       variant: "destructive"
                     });
                   }}
@@ -255,8 +350,7 @@ const CameraStatus = () => {
                 </div>
               )}
             </div>
-            
-            {/* Camera Info */}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Location</p>
@@ -268,20 +362,24 @@ const CameraStatus = () => {
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">Camera ID</p>
-                <p className="text-sm font-medium">CAM-{String(selectedCamera?.id).padStart(3, '0')}</p>
+                <p className="text-sm font-medium">
+                  CAM-{String(selectedCamera?.id).padStart(3, '0')}
+                </p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Uptime</p>
+                <p className="text-xs text-muted-foreground">Last Seen</p>
                 <p className="text-sm font-medium text-accent">
-                  {selectedCamera && formatUptime(selectedCamera.last_seen_at)}
+                  {selectedCamera && formatLastSeen(selectedCamera.last_seen_at)}
                 </p>
               </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 };
+
 
 export default CameraStatus;
