@@ -1,203 +1,15 @@
 import os
 import sys
 import cv2
-import requests
-from datetime import datetime
 import time
 from ultralytics import YOLO
 from dotenv import load_dotenv
 import easyocr
 from collections import deque
 
-
-def update_camera_status(camera_id, status='active', stream_url=''):
-    try:
-        url = f"http://127.0.0.1:8000/api/cameras/{camera_id}/"
-        token = os.getenv('API_TOKEN')
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'status': status,
-            'last_seen_at': datetime.now().isoformat(),
-            'stream_url': stream_url
-        }
-        response = requests.patch(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            print(f"✓ Camera status updated to: {status}")
-        else:
-            print(f"⚠ Failed to update camera status: {response.status_code} | {response.text}")
-    except Exception as e:
-        print(f"Error updating camera status: {e}")
-
-
-def send_violation_to_backend(detection_data, frame_bgr):
-    try:
-        url = "http://127.0.0.1:8000/api/violations/"
-        token = os.getenv('API_TOKEN')
-        headers = {'Authorization': f'Bearer {token}'}
-
-        camera_id = int(os.getenv('CAMERA_ID', '2'))
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        evidence_dir = os.getenv("EVIDENCE_DIR", "evidence")
-        os.makedirs(evidence_dir, exist_ok=True)
-        image_path = os.path.join(evidence_dir, f"violation_{timestamp}.jpg")
-        cv2.imwrite(image_path, frame_bgr)
-
-        payload = {
-            'camera': camera_id,
-            'detected_at': datetime.now().isoformat(),
-            'detection_status': detection_data['status'],
-            'confidence_score': detection_data['confidence'],
-            'classification': detection_data['classification'],
-            'plate_number': detection_data.get('plate_number', ''),
-            'bounding_box': str(detection_data.get('bounding_box', {})),
-        }
-
-        with open(image_path, "rb") as img:
-            files = {"evidence_image": (os.path.basename(image_path), img, "image/jpeg")}
-            response = requests.post(url, data=payload, files=files, headers=headers, timeout=15)
-
-        if response.status_code == 201:
-            print(
-                f"Violation sent: {payload['classification']} | "
-                f"Plate: {payload['plate_number']} | "
-                f"Confidence: {payload['confidence_score']:.2f}"
-            )
-        else:
-            print(f"Failed to send: {response.status_code} - {response.text}")
-
-    except Exception as e:
-        print(f"Error sending to backend: {e}")
-
-
-# -----------------------------
-# OCR helpers
-# -----------------------------
-def fix_plate_format(text: str) -> str:
-    LETTER_TO_NUMBER = {"O": "0", "I": "1", "Z": "2", "S": "5", "B": "8", "G": "6"}
-    NUMBER_TO_LETTER = {"0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G"}
-
-    clean = text.replace(" ", "")
-
-    if len(clean) >= 6:
-        letters_part = clean[:3]
-        numbers_part = clean[3:]
-
-        fixed_letters = ""
-        for ch in letters_part:
-            fixed_letters += NUMBER_TO_LETTER.get(ch, ch)
-
-        fixed_numbers = ""
-        for ch in numbers_part:
-            fixed_numbers += LETTER_TO_NUMBER.get(ch, ch)
-
-        return fixed_letters + fixed_numbers
-
-    return text
-
-
-def read_plate_text(frame_bgr, x1, y1, x2, y2, reader, ocr_conf=0.2):
-    try:
-        h, w = frame_bgr.shape[:2]
-        x1 = max(0, min(x1, w - 1))
-        x2 = max(0, min(x2, w))
-        y1 = max(0, min(y1, h - 1))
-        y2 = max(0, min(y2, h))
-
-        if x2 <= x1 or y2 <= y1:
-            return ""
-
-        crop = frame_bgr[y1:y2, x1:x2]
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        gray = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        results = reader.readtext(thresh)
-        texts = [
-            text for (_, text, prob) in results
-            if prob >= ocr_conf  # ← uses dynamic threshold instead of hardcoded
-            and len(text) >= 3
-        ]
-        text = " ".join(texts)
-        text = "".join(ch for ch in text if ch.isalnum() or ch == " ").strip().upper()
-        text = fix_plate_format(text)
-
-        return text if len(text) >= 3 else ""
-    except Exception:
-        return ""
-
-
-# -----------------------------
-# Overlap filter - removes double detections across classes
-# -----------------------------
-def filter_overlapping_boxes(boxes, iou_threshold=0.5):
-    if not boxes:
-        return boxes
-
-    kept = []
-    boxes_sorted = sorted(boxes, key=lambda b: float(b.conf[0]), reverse=True)
-
-    for box in boxes_sorted:
-        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-        overlap = False
-
-        for kept_box in kept:
-            kx1, ky1, kx2, ky2 = kept_box.xyxy[0].cpu().numpy().astype(int)
-            inter_x1 = max(x1, kx1)
-            inter_y1 = max(y1, ky1)
-            inter_x2 = min(x2, kx2)
-            inter_y2 = min(y2, ky2)
-            inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
-            box_area   = (x2 - x1) * (y2 - y1)
-            kept_area  = (kx2 - kx1) * (ky2 - ky1)
-            union_area = box_area + kept_area - inter_area
-
-            if union_area > 0 and inter_area / union_area >= iou_threshold:
-                overlap = True
-                break
-
-        if not overlap:
-            kept.append(box)
-
-    return kept
-
-
-def fetch_settings_from_backend():
-    """Fetch detection settings from Django backend on startup."""
-    try:
-        token = os.getenv('API_TOKEN')
-        url   = "http://127.0.0.1:8000/api/settings/"
-        headers = {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            conf         = float(data.get('confidence_threshold',  os.getenv('CONF', '0.6')))
-            cooldown     = float(data.get('send_cooldown_seconds', os.getenv('SEND_COOLDOWN_SECONDS', '3')))
-            retention    = int(data.get('data_retention_days',     90))
-            ocr_conf     = float(data.get('ocr_confidence',        os.getenv('OCR_CONF', '0.2')))
-            print(f"✓ Settings loaded from backend:")
-            print(f"  Confidence threshold : {conf}")
-            print(f"  Send cooldown        : {cooldown}s")
-            print(f"  Data retention       : {retention} days")
-            print(f"  OCR confidence       : {ocr_conf}")
-            return conf, cooldown, retention, ocr_conf
-        else:
-            print(f"⚠ Could not load settings ({response.status_code}) — using .env defaults")
-    except Exception as e:
-        print(f"⚠ Backend unreachable: {e} — using .env defaults")
-
-    return (
-        float(os.getenv('CONF', '0.6')),
-        float(os.getenv('SEND_COOLDOWN_SECONDS', '3')),
-        90,
-        float(os.getenv('OCR_CONF', '0.2')),
-    )
+from backend_api import update_camera_status, send_violation_to_backend, fetch_settings_from_backend
+from ocr import read_plate_text
+from detection import filter_overlapping_boxes
 
 
 def main():
@@ -271,11 +83,22 @@ def main():
     VIOLATION_CLASSES = ['no_helmet', 'nutshell']
     COMPLIANT_CLASSES = ['helmet']
 
+    # TODO: PER-CLASS CONFIDENCE THRESHOLDS
+    # Add back here when needed:
+    # PER_CLASS_CONF = {
+    #     'no_helmet':     0.55,   # lenient — catch more violators
+    #     'nutshell':      0.65,   # strict  — avoid wrongful violations
+    #     'helmet':        conf_threshold,
+    #     'license_plate': 0.60,
+    # }
+
     latest_plate      = ""
     detection_history = deque(maxlen=3)
 
     try:
         # FIX 1: agnostic_nms removes helmet+no_helmet double boxes
+        # TODO: when PER_CLASS_CONF is restored, replace conf=conf_threshold with:
+        #   conf=min(PER_CLASS_CONF.values())
         results_generator = model(
             rtsp_url,
             stream=True,
@@ -342,6 +165,11 @@ def main():
                 if class_name not in stable_classes:
                     continue
 
+                # TODO: PER-CLASS CONFIDENCE FILTER
+                # When PER_CLASS_CONF is restored, add back:
+                #   class_conf_min = PER_CLASS_CONF.get(class_name, conf_threshold)
+                #   if conf < class_conf_min: continue
+
                 if class_name in COMPLIANT_CLASSES:
                     color = (0, 255, 0)
                     label = f"COMPLIANT: Helmet ({conf:.2f})"
@@ -407,6 +235,7 @@ def main():
                     conf_threshold = new_conf
                     send_cooldown  = new_cooldown
                     ocr_conf       = new_ocr
+                    # TODO: when PER_CLASS_CONF is restored, add: PER_CLASS_CONF['helmet'] = conf_threshold
                     print(f"[Settings updated] conf={conf_threshold} | cooldown={send_cooldown}s | ocr={ocr_conf}")
 
             cv2.putText(annotated_frame, f"Compliant: {compliant_count}", (10, 30),

@@ -1,3 +1,4 @@
+import os
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -32,10 +33,11 @@ class GoogleAuthCallback(APIView):
         
         try:
             # Verify the token with Google
+            google_client_id = os.getenv('GOOGLE_CLIENT_ID')
             idinfo = id_token.verify_oauth2_token(
                 token, 
                 requests.Request(), 
-                '975694574549-17li3p8grnsqleanj6sk8jmbdlon5dsn.apps.googleusercontent.com'  # Replace with your Google Client ID
+                google_client_id
             )
             
             email = idinfo.get('email')

@@ -62,6 +62,20 @@ const Settings = () => {
     ocr_confidence: 0.20,
   });
 
+  // Notification Settings state (persisted to localStorage)
+  const [notificationSettings, setNotificationSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('notificationSettings');
+      return saved ? JSON.parse(saved) : {
+        email_notifications: true,
+        alert_email: 'admin@saferide.ai',
+        critical_alert_escalation: true,
+      };
+    } catch {
+      return { email_notifications: true, alert_email: 'admin@saferide.ai', critical_alert_escalation: true };
+    }
+  });
+
   // Manage Users state
   const [showManageUsers, setShowManageUsers] = useState(false);
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -250,6 +264,10 @@ const Settings = () => {
           body: JSON.stringify(detectionSettings),
         });
         if (!resp.ok) throw new Error(await resp.text());
+      }
+
+      if (section === 'Notifications') {
+        localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
       }
 
       toast({
@@ -504,110 +522,55 @@ const Settings = () => {
         <TabsContent value="notifications" className="space-y-6">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle>
-                {isAdmin ? 'Global Notification Settings' : 'Personal Notification Preferences'}
-              </CardTitle>
-              <CardDescription>
-                {isAdmin
-                  ? 'Configure system-wide notification rules and templates'
-                  : 'Choose how you want to receive notifications'}
-              </CardDescription>
+              <CardTitle>Global Notification Settings</CardTitle>
+              <CardDescription>Configure system-wide alert destinations</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
+
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="email-notif">Email Notifications</Label>
-                    <p className="text-sm text-muted-foreground">Receive alerts via email</p>
+                    <p className="text-sm text-muted-foreground">Enable email alerts for violations</p>
                   </div>
-                  <Switch id="email-notif" defaultChecked />
+                  <Switch
+                    id="email-notif"
+                    checked={notificationSettings.email_notifications}
+                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, email_notifications: val }))}
+                  />
                 </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="push-notif">Push Notifications</Label>
-                    <p className="text-sm text-muted-foreground">Browser push notifications</p>
-                  </div>
-                  <Switch id="push-notif" defaultChecked />
-                </div>
-
-                {!isAdmin && (
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="sms-notif">SMS Alerts</Label>
-                      <p className="text-sm text-muted-foreground">Text message notifications</p>
-                    </div>
-                    <Switch id="sms-notif" />
-                  </div>
-                )}
 
                 <Separator />
 
                 <div className="space-y-2">
-                  <Label htmlFor="notif-frequency">Notification Frequency</Label>
-                  <Select defaultValue="realtime">
-                    <SelectTrigger id="notif-frequency">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="realtime">Real-time (Instant)</SelectItem>
-                      <SelectItem value="digest-hourly">Hourly Digest</SelectItem>
-                      <SelectItem value="digest-daily">Daily Digest</SelectItem>
-                      <SelectItem value="mute">Muted</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="admin-email">System Alert Email</Label>
+                  <Input
+                    id="admin-email"
+                    type="email"
+                    placeholder="admin@saferide.ai"
+                    value={notificationSettings.alert_email}
+                    onChange={(e) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, alert_email: e.target.value }))}
+                  />
+                  <p className="text-sm text-muted-foreground">Email address that receives system alerts</p>
                 </div>
 
-                {!isAdmin && (
-                  <div className="space-y-2">
-                    <Label htmlFor="notif-types">Notification Types</Label>
-                    <div className="space-y-2">
-                      <div className="flex items-center space-x-2">
-                        <Switch id="notif-new-violations" defaultChecked />
-                        <Label htmlFor="notif-new-violations" className="font-normal">New violations detected</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Switch id="notif-status-changes" defaultChecked />
-                        <Label htmlFor="notif-status-changes" className="font-normal">Violation status changes</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Switch id="notif-system-alerts" />
-                        <Label htmlFor="notif-system-alerts" className="font-normal">System alerts</Label>
-                      </div>
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="escalation">Critical Alert Escalation</Label>
+                    <p className="text-sm text-muted-foreground">Send critical alerts to all admins</p>
                   </div>
-                )}
+                  <Switch
+                    id="escalation"
+                    checked={notificationSettings.critical_alert_escalation}
+                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, critical_alert_escalation: val }))}
+                  />
+                </div>
 
-                {isAdmin && (
-                  <>
-                    <Separator />
-                    <div className="space-y-2">
-                      <Label htmlFor="admin-email">System Alert Email</Label>
-                      <Input id="admin-email" type="email" placeholder="admin@saferide.ai" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="escalation">Critical Alert Escalation</Label>
-                        <p className="text-sm text-muted-foreground">Send critical alerts to all admins</p>
-                      </div>
-                      <Switch id="escalation" defaultChecked />
-                    </div>
-                  </>
-                )}
               </div>
 
               <Button onClick={() => handleSave('Notifications')} disabled={savingSection === 'Notifications'}>
                 {savingSection === 'Notifications' ? 'Saving...' : 'Save Preferences'}
               </Button>
-
-              {!isAdmin && (
-                <Alert>
-                  <Eye className="h-4 w-4" />
-                  <AlertDescription>
-                    <strong>Read-only:</strong> Global notification templates and escalation rules are managed by administrators.
-                  </AlertDescription>
-                </Alert>
-              )}
             </CardContent>
           </Card>
         </TabsContent>

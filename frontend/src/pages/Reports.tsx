@@ -77,7 +77,7 @@ const Reports = () => {
       });
 
       const response = await apiClient.get(
-        `/violations/export/?format=${format}`,
+        `/violations/export/?export_format=${format}`,
         { responseType: 'blob' }
       );
 
