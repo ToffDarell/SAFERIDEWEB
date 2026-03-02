@@ -13,11 +13,18 @@ const Violations = () => {
   const { toast } = useToast();
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
-  
+
+  // Read preferences saved from Settings page
+  const prefs = JSON.parse(localStorage.getItem('userPreferences') || '{}');
+  const itemsPerPage: number = prefs.itemsPerPage || 25;
+  const defaultFilter: string = prefs.defaultFilter || 'all';
+  const showConfidence: boolean = prefs.showConfidence !== false;
+
   const [violations, setViolations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
+  const [filterStatus, setFilterStatus] = useState(defaultFilter);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -60,13 +67,13 @@ const Violations = () => {
   const loadViolations = async () => {
     setIsLoading(true);
     try {
-      const data = await violationsService.getViolations({ page: currentPage });
+      const data = await violationsService.getViolations({ page: currentPage, page_size: itemsPerPage });
       const violationsList = data.results || [];
       const count = data.count || 0;
       
       setTotalItems(count);
-      setTotalPages(Math.ceil(count / 10));
-      
+      setTotalPages(Math.ceil(count / itemsPerPage));
+
       setViolations(violationsList);
     } catch (error) {
       toast({
@@ -138,10 +145,15 @@ const Violations = () => {
     }
   };
 
-  const filteredViolations = violations.filter(v => 
-    v.plate_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    v.camera_name?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredViolations = violations.filter(v => {
+    const matchesSearch =
+      v.plate_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      v.camera_name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter =
+      filterStatus === 'all' ||
+      (v.review_status || 'pending') === filterStatus;
+    return matchesSearch && matchesFilter;
+  });
 
   if (isLoading) {
     return (
@@ -172,14 +184,27 @@ const Violations = () => {
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground">Recent Violations</CardTitle>
-          <div className="relative mt-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by plate number or camera..."
-              className="pl-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+          <div className="flex flex-col sm:flex-row gap-3 mt-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by plate number or camera..."
+                className="pl-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Violations</SelectItem>
+                <SelectItem value="pending">Pending Only</SelectItem>
+                <SelectItem value="reviewed">Reviewed Only</SelectItem>
+                <SelectItem value="resolved">Resolved Only</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent>
@@ -198,7 +223,7 @@ const Violations = () => {
                     <TableHead>Plate Number</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Confidence</TableHead>
+                    {showConfidence && <TableHead>Confidence</TableHead>}
                     <TableHead>Review Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -226,11 +251,13 @@ const Violations = () => {
                           {getStatusBadge(violation.classification)}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <span className="text-accent font-medium">
-                          {(violation.confidence_score * 100).toFixed(1)}%
-                        </span>
-                      </TableCell>
+                      {showConfidence && (
+                        <TableCell>
+                          <span className="text-accent font-medium">
+                            {(violation.confidence_score * 100).toFixed(1)}%
+                          </span>
+                        </TableCell>
+                      )}
                       <TableCell>
                         <Badge 
                           variant={

@@ -9,10 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Globe, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Globe, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, FileDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { API_BASE } from '@/config';
+import apiClient from '@/services/api';
 
 function getAuthHeaders() {
   // Support both storage keys: 'accessToken' (used elsewhere) and 'access_token'
@@ -74,6 +75,16 @@ const Settings = () => {
     } catch {
       return { email_notifications: true, alert_email: 'admin@saferide.ai', critical_alert_escalation: true };
     }
+  });
+
+  // Preferences state
+  const [preferences, setPreferences] = useState(() => {
+    const saved = localStorage.getItem('userPreferences');
+    return saved ? JSON.parse(saved) : {
+      itemsPerPage: 25,
+      defaultFilter: 'all',
+      showConfidence: true,
+    };
   });
 
   // Manage Users state
@@ -268,6 +279,10 @@ const Settings = () => {
 
       if (section === 'Notifications') {
         localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
+      }
+
+      if (section === 'Preferences') {
+        localStorage.setItem('userPreferences', JSON.stringify(preferences));
       }
 
       toast({
@@ -582,120 +597,67 @@ const Settings = () => {
               <CardTitle>UI & Workspace Preferences</CardTitle>
               <CardDescription>Customize your interface and workspace settings</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="theme">Theme</Label>
-                  <Select defaultValue="dark">
-                    <SelectTrigger id="theme">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">Light</SelectItem>
-                      <SelectItem value="dark">Dark</SelectItem>
-                      <SelectItem value="auto">System Default</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language</Label>
-                  <Select defaultValue="en">
-                    <SelectTrigger id="language">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="es">Spanish</SelectItem>
-                      <SelectItem value="fr">French</SelectItem>
-                      <SelectItem value="tl">Filipino</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Time Zone</Label>
-                  <Select defaultValue="pht">
-                    <SelectTrigger id="timezone">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pht">Philippines Time (PHT)</SelectItem>
-                      <SelectItem value="utc">UTC</SelectItem>
-                      <SelectItem value="est">Eastern Time (EST)</SelectItem>
-                      <SelectItem value="pst">Pacific Time (PST)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="date-format">Date Format</Label>
-                  <Select defaultValue="mdy">
-                    <SelectTrigger id="date-format">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mdy">MM/DD/YYYY</SelectItem>
-                      <SelectItem value="dmy">DD/MM/YYYY</SelectItem>
-                      <SelectItem value="ymd">YYYY-MM-DD</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2">
-                  <Label>Table Display Options</Label>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Switch id="show-timestamp" defaultChecked />
-                      <Label htmlFor="show-timestamp" className="font-normal">Show timestamps</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="show-location" defaultChecked />
-                      <Label htmlFor="show-location" className="font-normal">Show location column</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch id="show-confidence" />
-                      <Label htmlFor="show-confidence" className="font-normal">Show confidence scores</Label>
-                    </div>
-                  </div>
-                </div>
+            <CardContent className="space-y-6">
+              <div className="space-y-6">
 
                 <div className="space-y-2">
                   <Label htmlFor="items-per-page">Items Per Page</Label>
-                  <Select defaultValue="25">
-                    <SelectTrigger id="items-per-page">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                      <SelectItem value="100">100</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Number of records displayed per page in violation tables.
+                  </p>
+                  <select
+                    id="items-per-page"
+                    value={preferences.itemsPerPage}
+                    onChange={(e) => setPreferences((s: any) => ({ ...s, itemsPerPage: Number(e.target.value) }))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="default-filter">Default Violation Filter</Label>
-                  <Select defaultValue="unresolved">
-                    <SelectTrigger id="default-filter">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Violations</SelectItem>
-                      <SelectItem value="unresolved">Unresolved Only</SelectItem>
-                      <SelectItem value="today">Today's Violations</SelectItem>
-                      <SelectItem value="week">This Week</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Default filter applied when opening the Violations page.
+                  </p>
+                  <select
+                    id="default-filter"
+                    value={preferences.defaultFilter}
+                    onChange={(e) => setPreferences((s: any) => ({ ...s, defaultFilter: e.target.value }))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="all">All Violations</option>
+                    <option value="pending">Pending Only</option>
+                    <option value="reviewed">Reviewed Only</option>
+                    <option value="resolved">Resolved Only</option>
+                  </select>
                 </div>
-              </div>
 
-              <Button onClick={() => handleSave('UI Preferences')} disabled={savingSection === 'UI Preferences'}>
-                {savingSection === 'UI Preferences' ? 'Saving...' : 'Save Preferences'}
-              </Button>
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Show Confidence Scores</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Display AI confidence percentage in violation tables.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={preferences.showConfidence}
+                    onCheckedChange={(checked) => setPreferences((s: any) => ({ ...s, showConfidence: checked }))}
+                  />
+                </div>
+
+                <Button
+                  onClick={() => handleSave('Preferences')}
+                  disabled={savingSection === 'Preferences'}
+                >
+                  {savingSection === 'Preferences' ? 'Saving...' : 'Save Preferences'}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -869,8 +831,51 @@ const Settings = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Button variant="outline" className="w-full">Export Data</Button>
-                <Button onClick={() => handleSave('Database')}>Save Changes</Button>
+                <p className="text-sm text-muted-foreground">
+                  Export all violation records from the database.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        const res = await apiClient.get('/violations/export/?export_format=csv', { responseType: 'blob' });
+                        const url = window.URL.createObjectURL(new Blob([res.data]));
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `saferide_violations_${new Date().toISOString().slice(0,10)}.csv`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        window.URL.revokeObjectURL(url);
+                        toast({ title: 'Export Complete', description: 'CSV downloaded successfully.' });
+                      } catch {
+                        toast({ title: 'Export Failed', description: 'Could not export CSV.', variant: 'destructive' });
+                      }
+                    }}
+                  >
+                    <FileDown className="w-4 h-4 mr-2" /> Export CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        const res = await apiClient.get('/violations/export/?export_format=pdf', { responseType: 'blob' });
+                        const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `saferide_violations_${new Date().toISOString().slice(0,10)}.pdf`;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        window.URL.revokeObjectURL(url);
+                        toast({ title: 'Export Complete', description: 'PDF downloaded successfully.' });
+                      } catch {
+                        toast({ title: 'Export Failed', description: 'Could not export PDF.', variant: 'destructive' });
+                      }
+                    }}
+                  >
+                    <FileDown className="w-4 h-4 mr-2" /> Export PDF
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
