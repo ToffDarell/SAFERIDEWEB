@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Globe, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, FileDown } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, FileDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { API_BASE } from '@/config';
@@ -418,19 +418,10 @@ const Settings = () => {
                   <Label htmlFor="email">Email</Label>
                   <Input id="email" type="email" defaultValue={currentUser?.email || ''} />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" type="tel" placeholder="+1 (555) 000-0000" />
-                </div>
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="role-display">Role</Label>
                   <Input id="role-display" value={isAdmin ? 'Administrator' : 'TMC Operator'} disabled />
                 </div>
-              </div>
-              <Separator />
-              <div className="space-y-2">
-                <Label htmlFor="bio">Bio / Notes</Label>
-                <Input id="bio" placeholder="Optional personal notes" />
               </div>
               <Button onClick={() => handleSave('Profile')} disabled={savingSection === 'Profile'}>
                 {savingSection === 'Profile' ? 'Saving...' : 'Save Profile'}
@@ -487,35 +478,6 @@ const Settings = () => {
                 <Button onClick={() => handleSave('Password')} disabled={savingSection === 'Password'}>
                   {savingSection === 'Password' ? 'Saving...' : 'Update Password'}
                 </Button>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="2fa-personal">Two-Factor Authentication (2FA)</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {isAdmin ? 'Enforce 2FA for all users' : 'Enable 2FA for your account'}
-                    </p>
-                  </div>
-                  <Switch id="2fa-personal" />
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-3">
-                <Label>Active Sessions</Label>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">Current Session</p>
-                      <p className="text-muted-foreground">Last login: {currentUser?.loginTime ? new Date(currentUser.loginTime).toLocaleString() : 'N/A'}</p>
-                    </div>
-                    <Button variant="outline" size="sm">Revoke</Button>
-                  </div>
-                </div>
               </div>
 
               {isAdmin && (
@@ -1259,9 +1221,7 @@ const Settings = () => {
         <Alert className="bg-muted">
           <Eye className="h-4 w-4" />
           <AlertDescription>
-            <strong>Read-Only Access:</strong> You can view system detection thresholds, camera list, global notification rules,
-            storage status, and backup schedules in their respective sections, but cannot modify them. Contact an administrator
-            to request changes to system-wide settings.
+            <strong>Operator Access:</strong> You can update your profile, change your password, and configure your personal preferences. Contact an administrator to request changes to system-wide settings.
           </AlertDescription>
         </Alert>
       )}

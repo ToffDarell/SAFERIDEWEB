@@ -55,15 +55,11 @@ const AdminLogin = () => {
       // Get user info to detect role automatically
       const userInfo = await authService.getCurrentUser();
       
-      // If we can't fetch user info, still allow login and navigate
+
       if (!userInfo) {
-        localStorage.setItem('currentUser', JSON.stringify({
-          name: credentials.username,
-          role: 'admin', // fallback
-        }));
         toast({
           title: 'Login Successful',
-          description: `Welcome back, ${credentials.username}!`,
+          description: 'Signed in, but profile details could not be loaded yet.',
         });
         navigate('/dashboard');
         return;
@@ -168,11 +164,27 @@ const AdminLogin = () => {
 
         navigate('/dashboard');
       } else {
-        toast({
-          title: 'Google Login Failed',
-          description: result.error,
-          variant: 'destructive',
-        });
+        // Use status from backend response for precise messaging
+        const accountStatus = result.status;
+        if (accountStatus === 'pending') {
+          toast({
+            title: 'Account Pending',
+            description: 'Your account is awaiting admin approval.',
+            variant: 'destructive',
+          });
+        } else if (accountStatus === 'rejected') {
+          toast({
+            title: 'Account Rejected',
+            description: 'Your account registration was rejected. Please contact support.',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Google Login Failed',
+            description: result.error || 'An error occurred during Google login',
+            variant: 'destructive',
+          });
+        }
       }
     } catch (error: any) {
       toast({

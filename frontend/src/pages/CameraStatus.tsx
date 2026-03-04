@@ -146,8 +146,9 @@ const CameraStatus = () => {
 
 
   const getStreamUrl = (camera: CameraType) => {
-    const token = localStorage.getItem('accessToken');
-    return `http://localhost:8000/api/cameras/${camera.id}/stream/?token=${token}`;
+    // YOLO now stores the MJPEG URL (http://127.0.0.1:8081/stream)
+    // directly in camera.stream_url — use it directly, no auth needed
+    return camera.stream_url || '';
   };
 
 
