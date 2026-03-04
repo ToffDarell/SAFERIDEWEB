@@ -26,7 +26,8 @@ export const googleAuthService = {
     } catch (error: any) {
       return { 
         success: false, 
-        error: error.response?.data?.error || 'Google login failed' 
+        error: error.response?.data?.error || 'Google login failed',
+        status: error.response?.data?.user?.status || null,
       };
     }
   }
