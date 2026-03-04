@@ -55,6 +55,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', '')
         )
+
+        # Grant Django staff/admin privileges when role is admin
+        if role == 'admin':
+            user.is_staff = True
+            user.save(update_fields=['is_staff'])
         
         # update_or_create handles the post_save signal already creating a blank
         # profile — atomically sets all fields in one step
