@@ -6,6 +6,8 @@ from ultralytics import YOLO
 from dotenv import load_dotenv
 import easyocr
 from collections import deque
+# ADD THIS IMPORT
+from mjpeg_server import start_mjpeg_server, update_frame
 
 from backend_api import update_camera_status, send_violation_to_backend, fetch_settings_from_backend
 from ocr import read_plate_text
@@ -58,23 +60,35 @@ def main():
     print("Connecting to RTSP stream...")
     cap = cv2.VideoCapture(rtsp_url)
 
+    # FIX 1: release cap even on first failure
     if not cap.isOpened():
         print("ERROR: Failed to connect to RTSP stream")
-        update_camera_status(camera_id, 'inactive', rtsp_url)
+        cap.release()  # ← added
+        update_camera_status(camera_id, 'inactive', '')
         return
 
     ret, frame = cap.read()
     if not ret:
         print("ERROR: Connected but failed to read frame")
         cap.release()
-        update_camera_status(camera_id, 'inactive', rtsp_url)
+        update_camera_status(camera_id, 'inactive', '')
         return
 
     print(f"✓ Connected! Frame size: {frame.shape[1]}x{frame.shape[0]}")
     print("-" * 60)
     cap.release()
 
-    update_camera_status(camera_id, 'active', rtsp_url)
+    # FIX 2: start MJPEG server AFTER RTSP is confirmed working
+    mjpeg_port = int(os.getenv('MJPEG_PORT', '8081'))
+    start_mjpeg_server(port=mjpeg_port)
+
+    # FIX 3: use LAN IP if frontend opens from another device
+    # For capstone demo (same PC): use 127.0.0.1
+    # For other devices on network: use 192.168.137.1
+    mjpeg_url = f"http://127.0.0.1:{mjpeg_port}/stream"
+
+    # ✅ Mark active ONCE, only after everything is confirmed
+    update_camera_status(camera_id, 'active', mjpeg_url)
 
     last_heartbeat     = time.time()
     heartbeat_interval = int(os.getenv('HEARTBEAT_SECONDS', '2'))
@@ -96,9 +110,6 @@ def main():
     detection_history = deque(maxlen=3)
 
     try:
-        # FIX 1: agnostic_nms removes helmet+no_helmet double boxes
-        # TODO: when PER_CLASS_CONF is restored, replace conf=conf_threshold with:
-        #   conf=min(PER_CLASS_CONF.values())
         results_generator = model(
             rtsp_url,
             stream=True,
@@ -114,7 +125,7 @@ def main():
             now = time.time()
 
             if now - last_heartbeat >= heartbeat_interval:
-                update_camera_status(camera_id, 'active', rtsp_url)
+                update_camera_status(camera_id, 'active', mjpeg_url)
                 last_heartbeat = now
 
             annotated_frame = results.orig_img.copy()
@@ -246,6 +257,11 @@ def main():
                 cv2.putText(annotated_frame, f"Plate: {latest_plate}", (10, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
+            # ADD THIS: push annotated frame to MJPEG server
+            ret, jpeg = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ret:
+                update_frame(jpeg.tobytes())
+
             cv2.imshow('SafeRide YOLO Detection - Press Q to Quit', annotated_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -256,7 +272,7 @@ def main():
         print(f"\nERROR during inference: {e}")
 
     finally:
-        update_camera_status(camera_id, 'inactive', rtsp_url)
+        update_camera_status(camera_id, 'inactive', mjpeg_url)
         cv2.destroyAllWindows()
         print("\nStream closed.")
 
