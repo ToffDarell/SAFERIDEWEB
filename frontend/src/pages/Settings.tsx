@@ -61,6 +61,10 @@ const Settings = () => {
     send_cooldown_seconds: 3.0,
     data_retention_days: 90,
     ocr_confidence: 0.20,
+    conf_no_helmet: 0.55,
+    conf_nutshell: 0.65,
+    conf_helmet: 0.60,
+    conf_license_plate: 0.60,
   });
 
   // Notification Settings state (persisted to localStorage)
@@ -131,6 +135,10 @@ const Settings = () => {
         send_cooldown_seconds: data.send_cooldown_seconds != null ? parseFloat(data.send_cooldown_seconds) : 3.0,
         data_retention_days:   data.data_retention_days  != null ? parseInt(data.data_retention_days)     : 90,
         ocr_confidence:        data.ocr_confidence        != null ? parseFloat(data.ocr_confidence)        : 0.20,
+        conf_no_helmet:        data.conf_no_helmet         != null ? parseFloat(data.conf_no_helmet)        : 0.55,
+        conf_nutshell:         data.conf_nutshell          != null ? parseFloat(data.conf_nutshell)         : 0.65,
+        conf_helmet:           data.conf_helmet            != null ? parseFloat(data.conf_helmet)           : 0.60,
+        conf_license_plate:    data.conf_license_plate     != null ? parseFloat(data.conf_license_plate)    : 0.60,
       });
     } catch {}
   };
@@ -648,7 +656,7 @@ const Settings = () => {
                     </span>
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    Minimum confidence YOLO must have before flagging a violation. Lower = more detections, more false positives.
+                    YOLO inference floor — applies to all classes before per-class thresholds. Keep this ≤ your lowest per-class value below.
                   </p>
                   <input
                     id="confidence-threshold"
@@ -665,6 +673,136 @@ const Settings = () => {
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>30% (Sensitive)</span>
                     <span>95% (Strict)</span>
+                  </div>
+                  {/* Warning: global threshold overrides per-class values */}
+                  {(() => {
+                    const global = detectionSettings.confidence_threshold;
+                    const blocked = [
+                      detectionSettings.conf_no_helmet < global && 'No Helmet',
+                      detectionSettings.conf_nutshell  < global && 'Nutshell',
+                      detectionSettings.conf_helmet    < global && 'Helmet',
+                      detectionSettings.conf_license_plate < global && 'License Plate',
+                    ].filter(Boolean);
+                    return blocked.length > 0 ? (
+                      <div className="flex items-start gap-2 rounded-md border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>
+                          <strong>Warning:</strong> Global threshold ({(global * 100).toFixed(0)}%) is higher than the per-class threshold for <strong>{blocked.join(', ')}</strong>. These classes will never be detected. Lower the global threshold or raise the per-class values.
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+
+                <Separator />
+
+                {/* Per-class confidence thresholds */}
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-semibold">Per-Class Confidence Thresholds</Label>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Fine-tune sensitivity per detection class. Must be ≥ the global threshold above to have effect.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="conf-no-helmet">
+                      No Helmet — <span className="text-destructive font-semibold">
+                        {(detectionSettings.conf_no_helmet * 100).toFixed(0)}%
+                      </span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Lower = catches more violators. Raise if getting false positives.</p>
+                    <input
+                      id="conf-no-helmet"
+                      type="range"
+                      min="0.30"
+                      max="0.95"
+                      step="0.05"
+                      value={detectionSettings.conf_no_helmet}
+                      onChange={(e) =>
+                        setDetectionSettings(s => ({ ...s, conf_no_helmet: parseFloat(e.target.value) }))
+                      }
+                      className="w-full accent-destructive"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>30% (Lenient)</span>
+                      <span>95% (Strict)</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="conf-nutshell">
+                      Nutshell (Half-Helmet) — <span className="text-orange-500 font-semibold">
+                        {(detectionSettings.conf_nutshell * 100).toFixed(0)}%
+                      </span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Keep higher to avoid misidentifying full helmets as nutshells.</p>
+                    <input
+                      id="conf-nutshell"
+                      type="range"
+                      min="0.30"
+                      max="0.95"
+                      step="0.05"
+                      value={detectionSettings.conf_nutshell}
+                      onChange={(e) =>
+                        setDetectionSettings(s => ({ ...s, conf_nutshell: parseFloat(e.target.value) }))
+                      }
+                      className="w-full accent-orange-500"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>30% (Lenient)</span>
+                      <span>95% (Strict)</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="conf-helmet">
+                      Helmet (Compliant) — <span className="text-green-500 font-semibold">
+                        {(detectionSettings.conf_helmet * 100).toFixed(0)}%
+                      </span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Minimum confidence to mark a rider as compliant.</p>
+                    <input
+                      id="conf-helmet"
+                      type="range"
+                      min="0.30"
+                      max="0.95"
+                      step="0.05"
+                      value={detectionSettings.conf_helmet}
+                      onChange={(e) =>
+                        setDetectionSettings(s => ({ ...s, conf_helmet: parseFloat(e.target.value) }))
+                      }
+                      className="w-full accent-green-500"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>30% (Lenient)</span>
+                      <span>95% (Strict)</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="conf-license-plate">
+                      License Plate Detection — <span className="text-cyan-500 font-semibold">
+                        {(detectionSettings.conf_license_plate * 100).toFixed(0)}%
+                      </span>
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Minimum YOLO confidence to attempt reading a plate. Lower if plates are being missed.</p>
+                    <input
+                      id="conf-license-plate"
+                      type="range"
+                      min="0.30"
+                      max="0.95"
+                      step="0.05"
+                      value={detectionSettings.conf_license_plate}
+                      onChange={(e) =>
+                        setDetectionSettings(s => ({ ...s, conf_license_plate: parseFloat(e.target.value) }))
+                      }
+                      className="w-full accent-cyan-500"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>30% (Lenient)</span>
+                      <span>95% (Strict)</span>
+                    </div>
                   </div>
                 </div>
 
