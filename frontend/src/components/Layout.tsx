@@ -1,78 +1,107 @@
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, X } from 'lucide-react';
+import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, X, MonitorPlay } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { authService } from '@/services/auth';
 import { violationsService } from '@/services/violations';
 
 export const Layout = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [notifications, setNotifications  ] = useState<any[]>([]);
-  const [lastViolationId, setLastViolationId] = useState<number>(0);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  
+  const lastViolationIdRef = useRef<number>(0);
+  const initializedRef = useRef(false);
+
+  const addNotification = useCallback((violation: any) => {
+    const newNotification = {
+      id: Date.now(),
+      violationId: violation.id,
+      message: `New violation detected: ${violation.plate_number || 'Unknown plate'} at ${violation.camera_name || 'Unknown location'}`,
+      time: new Date().toISOString(),
+      read: false,
+    };
+
+    setNotifications(prev => {
+      const updated = [newNotification, ...prev].slice(0, 50);
+      localStorage.setItem('notifications', JSON.stringify(updated));
+      return updated;
+    });
+
+    lastViolationIdRef.current = violation.id;
+    localStorage.setItem('lastViolationId', violation.id.toString());
+    console.log(`✅ New violation detected: ID ${violation.id}`);
+  }, []);
+
   useEffect(() => {
     // Check if we need to reset notifications for a new day
     const today = new Date().toDateString();
     const lastNotificationDate = localStorage.getItem('lastNotificationDate');
-    
+
     if (lastNotificationDate !== today) {
       // New day - reset notifications
       localStorage.setItem('notifications', '[]');
       localStorage.setItem('lastNotificationDate', today);
       localStorage.setItem('lastViolationId', '0');
       setNotifications([]);
-      setLastViolationId(0);
+      lastViolationIdRef.current = 0;
     } else {
       // Same day - load existing notifications
       const storedNotifications = JSON.parse(localStorage.getItem('notifications') || '[]');
       setNotifications(storedNotifications);
-      
+
       const storedLastId = parseInt(localStorage.getItem('lastViolationId') || '0');
-      setLastViolationId(storedLastId);
+      lastViolationIdRef.current = storedLastId;
     }
-    
-    // Poll for new violations every 5 seconds
-    const pollInterval = setInterval(async () => {
+
+    // Seed the last known violation ID on first load so old violations don't trigger notifications
+    const seedLastId = async () => {
       try {
         const data = await violationsService.getViolations({ ordering: '-id', page_size: 1 });
         const latestViolation = data.results?.[0];
-        
-        // Only create notification if there's a NEW violation (higher ID than last seen)
-        if (latestViolation && latestViolation.id > lastViolationId) {
-          const newNotification = {
-            id: Date.now(),
-            violationId: latestViolation.id,
-            message: `New violation detected: ${latestViolation.plate_number || 'Unknown plate'} at ${latestViolation.camera_name || 'Unknown location'}`,
-            time: new Date().toISOString(),
-            read: false,
-          };
-          
-          setNotifications(prev => {
-            const updated = [newNotification, ...prev].slice(0, 50); // Keep last 50 notifications
-            localStorage.setItem('notifications', JSON.stringify(updated));
-            return updated;
-          });
-          
-          // Update last seen violation ID
-          setLastViolationId(latestViolation.id);
+        if (latestViolation && latestViolation.id > lastViolationIdRef.current) {
+          // Only seed — don't notify for this existing violation
+          lastViolationIdRef.current = latestViolation.id;
           localStorage.setItem('lastViolationId', latestViolation.id.toString());
-          
-          console.log(`✅ New violation detected: ID ${latestViolation.id}`);
+        }
+      } catch (error) {
+        console.error('Failed to seed last violation ID:', error);
+      }
+      initializedRef.current = true;
+    };
+    seedLastId();
+
+    // Poll for new violations every 5 seconds
+    const pollInterval = setInterval(async () => {
+      if (!initializedRef.current) return; // Wait until seeded
+      try {
+        const data = await violationsService.getViolations({ ordering: '-id', page_size: 1 });
+        const latestViolation = data.results?.[0];
+
+        if (latestViolation && latestViolation.id > lastViolationIdRef.current) {
+          // Only notify if the violation is recent (within the last 30 seconds)
+          const violationTime = new Date(latestViolation.detected_at).getTime();
+          const now = Date.now();
+          if (now - violationTime < 30000) {
+            addNotification(latestViolation);
+          } else {
+            // Old violation with higher ID — just update the bookmark without notifying
+            lastViolationIdRef.current = latestViolation.id;
+            localStorage.setItem('lastViolationId', latestViolation.id.toString());
+          }
         }
       } catch (error) {
         console.error('Failed to poll violations:', error);
       }
-    }, 5000); // Check every 5 seconds
-    
+    }, 5000);
+
     return () => clearInterval(pollInterval);
-  }, [lastViolationId]);
+  }, [addNotification]);
   
   const handleLogout = () => {
     authService.logout();
@@ -103,6 +132,7 @@ export const Layout = () => {
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/violations', icon: AlertTriangle, label: 'Violations' },
+    { path: '/live-monitor', icon: MonitorPlay, label: 'Live Monitor' },
     { path: '/cameras', icon: Camera, label: 'Camera Status' },
     { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/settings', icon: Settings, label: 'Settings' },
