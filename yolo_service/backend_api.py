@@ -85,31 +85,42 @@ def fetch_settings_from_backend():
     """
     Fetch detection settings from the Django backend.
     Falls back to .env defaults if the backend is unreachable.
-    Returns: (conf_threshold, send_cooldown, data_retention_days, ocr_conf)
+    Returns: (conf_threshold, send_cooldown, data_retention_days, ocr_conf,
+              conf_no_helmet, conf_nutshell, conf_helmet)
     """
     try:
         url = f"{BASE_URL}/api/settings/"
         response = requests.get(url, headers=_auth_headers('application/json'), timeout=5)
         if response.status_code == 200:
             data = response.json()
-            conf      = float(data.get('confidence_threshold',  os.getenv('CONF', '0.6')))
-            cooldown  = float(data.get('send_cooldown_seconds', os.getenv('SEND_COOLDOWN_SECONDS', '3')))
-            retention = int(data.get('data_retention_days', 90))
-            ocr_conf  = float(data.get('ocr_confidence',        os.getenv('OCR_CONF', '0.2')))
+            conf           = float(data.get('confidence_threshold',  os.getenv('CONF', '0.6')))
+            cooldown       = float(data.get('send_cooldown_seconds', os.getenv('SEND_COOLDOWN_SECONDS', '3')))
+            retention      = int(data.get('data_retention_days', 90))
+            ocr_conf       = float(data.get('ocr_confidence',        os.getenv('OCR_CONF', '0.2')))
+            conf_no_helmet     = float(data.get('conf_no_helmet',     0.55))
+            conf_nutshell      = float(data.get('conf_nutshell',      0.65))
+            conf_helmet        = float(data.get('conf_helmet',        conf))
+            conf_license_plate = float(data.get('conf_license_plate', 0.60))
             print("✓ Settings loaded from backend:")
             print(f"  Confidence threshold : {conf}")
             print(f"  Send cooldown        : {cooldown}s")
             print(f"  Data retention       : {retention} days")
             print(f"  OCR confidence       : {ocr_conf}")
-            return conf, cooldown, retention, ocr_conf
+            print(f"  Per-class conf       : no_helmet={conf_no_helmet} | nutshell={conf_nutshell} | helmet={conf_helmet} | plate={conf_license_plate}")
+            return conf, cooldown, retention, ocr_conf, conf_no_helmet, conf_nutshell, conf_helmet, conf_license_plate
         else:
             print(f"⚠ Could not load settings ({response.status_code}) — using .env defaults")
     except Exception as e:
         print(f"⚠ Backend unreachable: {e} — using .env defaults")
 
+    conf = float(os.getenv('CONF', '0.6'))
     return (
-        float(os.getenv('CONF', '0.6')),
+        conf,
         float(os.getenv('SEND_COOLDOWN_SECONDS', '3')),
         90,
         float(os.getenv('OCR_CONF', '0.2')),
+        0.55,   # conf_no_helmet default
+        0.65,   # conf_nutshell default
+        conf,   # conf_helmet default = global threshold
+        0.60,   # conf_license_plate default
     )
