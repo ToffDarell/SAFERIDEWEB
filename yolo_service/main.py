@@ -27,8 +27,7 @@ def main():
     stream    = os.getenv('STREAM', 'stream2')
     camera_id = int(os.getenv('CAMERA_ID', '2'))
 
-    # ← UPDATED: now returns 4 values
-    conf_threshold, send_cooldown, _, ocr_conf = fetch_settings_from_backend()
+    conf_threshold, send_cooldown, _, ocr_conf, conf_no_helmet, conf_nutshell, conf_helmet, conf_license_plate = fetch_settings_from_backend()
 
     if not all([rtsp_ip, rtsp_user, rtsp_pass]):
         print("ERROR: Missing RTSP credentials in .env file")
@@ -41,7 +40,7 @@ def main():
     print(f"Send cooldown  : {send_cooldown}s")
     print("-" * 60)
 
-    model_path = os.path.join('weights', 'v8.pt')
+    model_path = os.path.join('weights', 'v18.pt')
     if not os.path.exists(model_path):
         print(f"ERROR: Model not found at {model_path}")
         return
@@ -97,14 +96,12 @@ def main():
     VIOLATION_CLASSES = ['no_helmet', 'nutshell']
     COMPLIANT_CLASSES = ['helmet']
 
-    # TODO: PER-CLASS CONFIDENCE THRESHOLDS
-    # Add back here when needed:
-    # PER_CLASS_CONF = {
-    #     'no_helmet':     0.55,   # lenient — catch more violators
-    #     'nutshell':      0.65,   # strict  — avoid wrongful violations
-    #     'helmet':        conf_threshold,
-    #     'license_plate': 0.60,
-    # }
+    PER_CLASS_CONF = {
+        'no_helmet':     conf_no_helmet,
+        'nutshell':      conf_nutshell,
+        'helmet':        conf_helmet,
+        'license_plate': conf_license_plate,
+    }
 
     latest_plate      = ""
     detection_history = deque(maxlen=3)
@@ -159,7 +156,7 @@ def main():
                 cls_id     = int(box.cls[0])
                 conf_box   = float(box.conf[0])
                 class_name = model.names[cls_id].lower()
-                if class_name == "license_plate" and conf_box >= 0.6:
+                if class_name == "license_plate" and conf_box >= conf_license_plate:
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
                     plate_text = read_plate_text(annotated_frame, x1, y1, x2, y2, reader, ocr_conf=ocr_conf)
                     if plate_text:
@@ -176,10 +173,9 @@ def main():
                 if class_name not in stable_classes:
                     continue
 
-                # TODO: PER-CLASS CONFIDENCE FILTER
-                # When PER_CLASS_CONF is restored, add back:
-                #   class_conf_min = PER_CLASS_CONF.get(class_name, conf_threshold)
-                #   if conf < class_conf_min: continue
+                class_conf_min = PER_CLASS_CONF.get(class_name, conf_threshold)
+                if conf < class_conf_min:
+                    continue
 
                 if class_name in COMPLIANT_CLASSES:
                     color = (0, 255, 0)
@@ -239,15 +235,27 @@ def main():
             # Re-fetch settings from backend every 300 frames (~10s at 30fps)
             # so changes saved in the Settings page apply without restarting YOLO
             if frame_count % 300 == 0:
-                new_conf, new_cooldown, _, new_ocr = fetch_settings_from_backend()
+                new_conf, new_cooldown, _, new_ocr, new_no_helmet, new_nutshell, new_helmet, new_plate = fetch_settings_from_backend()
                 if (new_conf != conf_threshold or
                     new_cooldown != send_cooldown or
-                    new_ocr != ocr_conf):
-                    conf_threshold = new_conf
-                    send_cooldown  = new_cooldown
-                    ocr_conf       = new_ocr
-                    # TODO: when PER_CLASS_CONF is restored, add: PER_CLASS_CONF['helmet'] = conf_threshold
+                    new_ocr != ocr_conf or
+                    new_no_helmet != conf_no_helmet or
+                    new_nutshell  != conf_nutshell or
+                    new_helmet    != conf_helmet or
+                    new_plate     != conf_license_plate):
+                    conf_threshold    = new_conf
+                    send_cooldown     = new_cooldown
+                    ocr_conf          = new_ocr
+                    conf_no_helmet    = new_no_helmet
+                    conf_nutshell     = new_nutshell
+                    conf_helmet       = new_helmet
+                    conf_license_plate = new_plate
+                    PER_CLASS_CONF['no_helmet']     = conf_no_helmet
+                    PER_CLASS_CONF['nutshell']      = conf_nutshell
+                    PER_CLASS_CONF['helmet']        = conf_helmet
+                    PER_CLASS_CONF['license_plate'] = conf_license_plate
                     print(f"[Settings updated] conf={conf_threshold} | cooldown={send_cooldown}s | ocr={ocr_conf}")
+                    print(f"  per-class: no_helmet={conf_no_helmet} | nutshell={conf_nutshell} | helmet={conf_helmet} | plate={conf_license_plate}")
 
             cv2.putText(annotated_frame, f"Compliant: {compliant_count}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
