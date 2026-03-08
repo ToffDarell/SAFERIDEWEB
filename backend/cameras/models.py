@@ -14,6 +14,12 @@ class SystemSettings(models.Model):
     send_cooldown_seconds = models.IntegerField(default=3.0)
     data_retention_days = models.IntegerField(default=90)
 
+    # Per-class confidence thresholds
+    conf_no_helmet     = models.FloatField(default=0.55)   # lenient — catch more violators
+    conf_nutshell      = models.FloatField(default=0.65)   # strict  — avoid wrongful violations
+    conf_helmet        = models.FloatField(default=0.60)   # follows global threshold by default
+    conf_license_plate = models.FloatField(default=0.60)   # YOLO plate detection threshold
+
     # OCR
     ocr_confidence = models.FloatField(default=0.5)
     class Meta:
