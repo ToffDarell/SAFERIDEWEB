@@ -7,6 +7,7 @@ from rest_framework import viewsets, filters
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
+import django_filters
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import landscape, A4
@@ -23,12 +24,21 @@ from .models import Violation
 from .serializers import ViolationSerializer
 
 
+class ViolationFilter(django_filters.FilterSet):
+    detected_at__gte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='gte')
+    detected_at__lte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='lte')
+
+    class Meta:
+        model = Violation
+        fields = ['detection_status', 'classification', 'camera', 'review_status']
+
+
 class ViolationViewSet(viewsets.ModelViewSet):
     queryset = Violation.objects.all().order_by('-detected_at')
     serializer_class = ViolationSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['detection_status', 'classification', 'camera', 'review_status']
+    filterset_class = ViolationFilter
     ordering_fields = ['detected_at', 'confidence_score']
     ordering = ['-detected_at']
 
