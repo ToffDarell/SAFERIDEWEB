@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 from cameras.models import Camera
 
 
@@ -37,6 +38,12 @@ class Violation(models.Model):
         choices=REVIEW_STATUS_CHOICES,
         default='pending'
     )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='reviewed_violations'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     
     class Meta:
         db_table = 'violations'
