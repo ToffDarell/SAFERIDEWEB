@@ -124,6 +124,11 @@ export const Layout = () => {
     setNotifications(updated);
     localStorage.setItem('notifications', JSON.stringify(updated));
   };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    localStorage.setItem('notifications', '[]');
+  };
   
   const unreadCount = notifications.filter(n => !n.read).length;
   
@@ -141,7 +146,7 @@ export const Layout = () => {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} border-r border-border bg-card/50 backdrop-blur-sm transition-all duration-300 flex flex-col`}>
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} shrink-0 border-r border-border bg-card/50 backdrop-blur-sm transition-all duration-300 flex flex-col`}>
         {/* Sidebar Header */}
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between">
@@ -237,7 +242,7 @@ export const Layout = () => {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
         {/* Header */}
         <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
           <div className="px-6 py-4 flex items-center justify-between">
@@ -263,11 +268,18 @@ export const Layout = () => {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h4 className="font-semibold text-sm">Notifications</h4>
-                      {unreadCount > 0 && (
-                        <Button variant="ghost" size="sm" onClick={markAllAsRead}>
-                          Mark all read
-                        </Button>
-                      )}
+                      <div className="flex gap-1">
+                        {unreadCount > 0 && (
+                          <Button variant="ghost" size="sm" onClick={markAllAsRead}>
+                            Mark all read
+                          </Button>
+                        )}
+                        {notifications.length > 0 && (
+                          <Button variant="ghost" size="sm" onClick={clearAllNotifications} className="text-destructive hover:text-destructive">
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-2 max-h-80 overflow-y-auto">
                       {notifications.length === 0 ? (
