@@ -13,7 +13,11 @@ export interface Violation {
   bounding_box: any;
   detected_objects: any;
   processed_at: string;
-  review_status: 'pending' | 'approved' | 'rejected';
+  review_status: 'pending' | 'reviewed' | 'resolved';
+  reviewed_by: number | null;
+  reviewed_by_name: string | null;
+  reviewed_by_role: string | null;
+  reviewed_at: string | null;
 }
 
 export interface ViolationFilters {
