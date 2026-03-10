@@ -91,8 +91,9 @@ const AdminLogin = () => {
       }
       
       // Store user info with detected role
+      const fullName = `${userInfo.first_name || ''} ${userInfo.last_name || ''}`.trim();
       localStorage.setItem('currentUser', JSON.stringify({
-        name: userInfo.username || credentials.username,
+        name: fullName || userInfo.username || credentials.username,
         role: userInfo.role, // Automatically use the role from database
       }));
 
