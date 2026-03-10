@@ -3,6 +3,7 @@ import io
 from datetime import datetime
 
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import viewsets, filters
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
@@ -34,13 +35,23 @@ class ViolationFilter(django_filters.FilterSet):
 
 
 class ViolationViewSet(viewsets.ModelViewSet):
-    queryset = Violation.objects.all().order_by('-detected_at')
+    queryset = Violation.objects.select_related('reviewed_by__profile').all().order_by('-detected_at')
     serializer_class = ViolationSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ViolationFilter
     ordering_fields = ['detected_at', 'confidence_score']
     ordering = ['-detected_at']
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        new_status = serializer.validated_data.get('review_status')
+        if new_status and new_status != instance.review_status and new_status in ('reviewed', 'resolved'):
+            serializer.save(reviewed_by=self.request.user, reviewed_at=timezone.now())
+        elif new_status == 'pending':
+            serializer.save(reviewed_by=None, reviewed_at=None)
+        else:
+            serializer.save()
 
 
 class ViolationExportView(APIView):
