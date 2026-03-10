@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, FileDown } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { API_BASE } from '@/config';
@@ -920,65 +920,6 @@ const Settings = () => {
         {/* System Settings - Admin Only */}
         {isAdmin && (
           <TabsContent value="system" className="space-y-6">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <Database className="w-5 h-5 text-primary" />
-                  <div>
-                    <CardTitle>Database & Storage</CardTitle>
-                    <CardDescription>System data export and configuration</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Export all violation records from the database.
-                </p>
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={async () => {
-                      try {
-                        const res = await apiClient.get('/violations/export/?export_format=csv', { responseType: 'blob' });
-                        const url = window.URL.createObjectURL(new Blob([res.data]));
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `saferide_violations_${new Date().toISOString().slice(0,10)}.csv`;
-                        document.body.appendChild(a); a.click(); a.remove();
-                        window.URL.revokeObjectURL(url);
-                        toast({ title: 'Export Complete', description: 'CSV downloaded successfully.' });
-                      } catch {
-                        toast({ title: 'Export Failed', description: 'Could not export CSV.', variant: 'destructive' });
-                      }
-                    }}
-                  >
-                    <FileDown className="w-4 h-4 mr-2" /> Export CSV
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={async () => {
-                      try {
-                        const res = await apiClient.get('/violations/export/?export_format=pdf', { responseType: 'blob' });
-                        const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `saferide_violations_${new Date().toISOString().slice(0,10)}.pdf`;
-                        document.body.appendChild(a); a.click(); a.remove();
-                        window.URL.revokeObjectURL(url);
-                        toast({ title: 'Export Complete', description: 'PDF downloaded successfully.' });
-                      } catch {
-                        toast({ title: 'Export Failed', description: 'Could not export PDF.', variant: 'destructive' });
-                      }
-                    }}
-                  >
-                    <FileDown className="w-4 h-4 mr-2" /> Export PDF
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
             <Card className="bg-card border-border">
               <CardHeader>
                 <div className="flex items-center gap-3">
