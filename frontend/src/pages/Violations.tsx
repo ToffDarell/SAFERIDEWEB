@@ -33,32 +33,21 @@ const Violations = () => {
   useEffect(() => {
     loadViolations();
     
+    // Silently refresh the table data every 10 seconds (no toast notifications)
     const interval = setInterval(async () => {
       if (currentPage !== 1) return;
       
-      const data = await violationsService.getViolations({ page: 1 });
-      const newViolations = data.results || [];
-      
-      newViolations.forEach((newV: any) => {
-        const exists = violations.find(v => v.id === newV.id);
-        if (!exists && newV.detection_status === 'violation') {
-          const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
-          notifications.unshift({
-            id: Date.now(),
-            message: `New violation detected: ${newV.plate_number || 'Unknown'} at ${newV.camera_name}`,
-            time: new Date().toISOString(),
-            read: false,
-          });
-          localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
-          
-          toast({
-            title: "New Violation Detected",
-            description: `${newV.plate_number || 'Unknown'} at ${newV.camera_name}`,
-          });
-        }
-      });
-      
-      setViolations(newViolations);
+      try {
+        const data = await violationsService.getViolations({ page: 1, page_size: itemsPerPage });
+        const newViolations = data.results || [];
+        const count = data.count || 0;
+
+        setTotalItems(count);
+        setTotalPages(Math.ceil(count / itemsPerPage));
+        setViolations(newViolations);
+      } catch {
+        // silently ignore polling errors
+      }
     }, 10000);
     
     return () => clearInterval(interval);
@@ -90,8 +79,16 @@ const Violations = () => {
     const validStatus = newStatus.toLowerCase() as 'pending' | 'reviewed' | 'resolved';
 
     // Step 1: Optimistic UI update immediately
+    const reviewerName = currentUser.name || currentUser.username || 'Unknown';
+    const reviewerRole = currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator';
     setViolations(prev =>
-      prev.map(v => v.id === violationId ? { ...v, review_status: validStatus } : v)
+      prev.map(v => v.id === violationId ? {
+        ...v,
+        review_status: validStatus,
+        reviewed_by_name: validStatus !== 'pending' ? reviewerName : null,
+        reviewed_by_role: validStatus !== 'pending' ? reviewerRole : null,
+        reviewed_at: validStatus !== 'pending' ? new Date().toISOString() : null,
+      } : v)
     );
 
     try {
@@ -215,16 +212,17 @@ const Violations = () => {
           ) : (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
+                  <TableHeader>
                   <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Time</TableHead>
-                    <TableHead>Plate Number</TableHead>
+                    <TableHead className="whitespace-nowrap">Plate Number</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
                     {showConfidence && <TableHead>Confidence</TableHead>}
-                    <TableHead>Review Status</TableHead>
+                    <TableHead className="whitespace-nowrap">Review Status</TableHead>
+                    <TableHead className="whitespace-nowrap">Reviewed By</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -242,6 +240,7 @@ const Violations = () => {
                       <TableCell>{violation.camera_name || 'Unknown'}</TableCell>
                       <TableCell>
                         <Badge 
+                          className="whitespace-nowrap"
                           variant={
                             violation.classification === 'no_helmet' || violation.classification === 'nutshell'
                               ? 'destructive' 
@@ -272,6 +271,16 @@ const Violations = () => {
                             ? violation.review_status.charAt(0).toUpperCase() + violation.review_status.slice(1)
                             : 'Pending'}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {violation.reviewed_by_name ? (
+                          <div className="text-xs whitespace-nowrap">
+                            <p className="font-medium text-foreground">{violation.reviewed_by_name}</p>
+                            <p className="text-muted-foreground">{violation.reviewed_by_role}</p>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
