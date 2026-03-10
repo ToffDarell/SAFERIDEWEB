@@ -32,7 +32,7 @@ const LiveMonitor = () => {
   const loadCameras = async () => {
     try {
       const data = await camerasService.getCameras();
-      const list: CameraType[] = data.results || data || [];
+      const list: CameraType[] = (data.results || data || []).sort((a: CameraType, b: CameraType) => a.id - b.id);
       setCameras(list);
       // Auto-select first active camera if none selected
       setSelectedCamera(prev => {
@@ -82,6 +82,29 @@ const LiveMonitor = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main Stream */}
         <div className="lg:col-span-4 space-y-4">
+          {/* Camera Selector */}
+          {cameras.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {cameras.map((cam) => (
+                <Button
+                  key={cam.id}
+                  variant={selectedCamera?.id === cam.id ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex items-center gap-2 shrink-0"
+                  onClick={() => setSelectedCamera(cam)}
+                >
+                  <Camera className="w-4 h-4" />
+                  {cam.name}
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      cam.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'
+                    }`}
+                  />
+                </Button>
+              ))}
+            </div>
+          )}
+
           {/* Stream Viewer */}
           <Card className="border-border overflow-hidden">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
