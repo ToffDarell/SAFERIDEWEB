@@ -12,12 +12,14 @@ import requests
 from datetime import datetime
 
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 
 def _auth_headers(content_type=None):
-    token = os.getenv('API_TOKEN')
-    headers = {'Authorization': f'Bearer {token}'}
+    api_key = os.getenv('YOLO_API_KEY', '').strip()
+    headers = {}
+    if api_key:
+        headers['Authorization'] = f'Api-Key {api_key}'
     if content_type:
         headers['Content-Type'] = content_type
     return headers
@@ -25,13 +27,13 @@ def _auth_headers(content_type=None):
 
 def update_camera_status(camera_id, status='active', stream_url=''):
     try:
-        url = f"{BASE_URL}/api/cameras/{camera_id}/"
+        url = f"{BASE_URL}/api/cameras/{camera_id}/heartbeat/"
         payload = {
             'status': status,
             'last_seen_at': datetime.now().isoformat(),
             'stream_url': stream_url,
         }
-        response = requests.patch(url, json=payload, headers=_auth_headers('application/json'))
+        response = requests.post(url, json=payload, headers=_auth_headers('application/json'))
         if response.status_code == 200:
             print(f"✓ Camera status updated to: {status}")
         else:

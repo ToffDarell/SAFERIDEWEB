@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, Camera, CheckCircle, TrendingUp } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { violationsService } from '@/services/violations';
-import { camerasService } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
 import { useViolationNotifications } from '@/hooks/use-notifications';
 
 const Dashboard = () => {
   const { toast } = useToast();
   const [stats, setStats] = useState([
-    { title: 'Total Violations', value: '0', icon: AlertTriangle, trend: '+0%', color: 'text-destructive' },
-    { title: 'Active Cameras', value: '0', icon: Camera, trend: '100%', color: 'text-primary' },
-    { title: 'Plates Recognized', value: '0', icon: CheckCircle, trend: '+0%', color: 'text-accent' },
-    { title: 'Detection Rate', value: '0%', icon: TrendingUp, trend: '+0%', color: 'text-primary' },
+    { title: 'Total Violations', value: '0', subtitle: 'All recorded violations', icon: AlertTriangle, color: 'text-destructive' },
+    { title: 'Pending Review', value: '0', subtitle: 'Awaiting action', icon: CheckCircle, color: 'text-orange-500' },
+    { title: "Today's Violations", value: '0', subtitle: 'Detected today', icon: CalendarDays, color: 'text-accent' },
+    { title: 'This Week', value: '0', subtitle: 'Last 7 days', icon: TrendingUp, color: 'text-primary' },
   ]);
   const [weeklyData, setWeeklyData] = useState<any[]>([]);
   const [violationTypes, setViolationTypes] = useState<any[]>([]);
@@ -25,36 +24,38 @@ const Dashboard = () => {
 
   const loadDashboardData = async () => {
     try {
-      // Fetch violations and cameras from Django API
-      const [violationsData, camerasData] = await Promise.all([
-        violationsService.getViolations(),
-        camerasService.getCameras(),
+      const [summary, weeklyChart] = await Promise.all([
+        violationsService.getSummary(),
+        violationsService.getWeeklyChart(),
       ]);
-
-      const violations = violationsData.results || [];
-      const cameras = camerasData.results || [];
-      const totalViolations = violationsData.count || 0;
-      const activeCameras = cameras.filter((c: any) => c.status === 'active').length;
-      const platesRecognized = violations.filter((v: any) => v.plate_number).length;
-      const compliantCount = violations.filter((v: any) => v.detection_status === 'compliant').length;
-      const totalDetected = totalViolations + compliantCount;
-      const detectionRate = totalDetected > 0
-        ? ((compliantCount / totalDetected) * 100).toFixed(1)
-        : '0';
 
       setStats([
-        { title: 'Total Violations', value: totalViolations.toString(), icon: AlertTriangle, trend: '+12.5%', color: 'text-destructive' },
-        { title: 'Active Cameras', value: activeCameras.toString(), icon: Camera, trend: '100%', color: 'text-primary' },
-        { title: 'Plates Recognized', value: platesRecognized.toString(), icon: CheckCircle, trend: '+8.2%', color: 'text-accent' },
-        { title: 'Detection Rate', value: `${detectionRate}%`, icon: TrendingUp, trend: '+2.1%', color: 'text-primary' },
+        { title: 'Total Violations', value: summary.total_violations.toString(), subtitle: 'All recorded violations', icon: AlertTriangle, color: 'text-destructive' },
+        { title: 'Pending Review', value: summary.pending_violations.toString(), subtitle: 'Awaiting action', icon: CheckCircle, color: 'text-orange-500' },
+        { title: "Today's Violations", value: summary.today_violations.toString(), subtitle: 'Detected today', icon: CalendarDays, color: 'text-accent' },
+        { title: 'This Week', value: summary.this_week_violations.toString(), subtitle: 'Last 7 days', icon: TrendingUp, color: 'text-primary' },
       ]);
 
-      // Calculate weekly violations (last 7 days)
-      calculateWeeklyData(violations);
-      
-      // Calculate violation distribution
-      calculateViolationDistribution(violations);
-      
+      setWeeklyData(
+        weeklyChart.map((item) => ({
+          day: new Date(item.date).toLocaleDateString('en-US', { weekday: 'short' }),
+          violations: item.count,
+          fullDate: new Date(item.date).toLocaleDateString(),
+        }))
+      );
+
+      setViolationTypes(
+        summary.by_class.map((item, index) => ({
+          name: item.label,
+          value: item.count,
+          color: [
+            'hsl(var(--destructive))',
+            'hsl(var(--accent))',
+            'hsl(var(--primary))',
+            'hsl(var(--muted-foreground))',
+          ][index % 4],
+        }))
+      );
     } catch (error) {
       toast({
         title: 'Error loading dashboard',
@@ -64,54 +65,6 @@ const Dashboard = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const calculateWeeklyData = (violations: any[]) => {
-    const today = new Date();
-    const last7Days = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      last7Days.push(date);
-    }
-    
-    const weeklyStats = last7Days.map(date => {
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-      const dateStr = date.toDateString();
-      
-      const count = violations.filter(v => {
-        const violationDate = new Date(v.detected_at);
-        return violationDate.toDateString() === dateStr;
-      }).length;
-      
-      return {
-        day: dayName,
-        violations: count
-      };
-    });
-    
-    setWeeklyData(weeklyStats);
-  };
-
-  const calculateViolationDistribution = (violations: any[]) => {
-    const noHelmet = violations.filter(v => 
-      v.classification === 'no_helmet' || v.classification === 'nutshell'
-    ).length;
-    
-    const partialHelmet = violations.filter(v => 
-      v.classification === 'half_face_helmet'
-    ).length;
-    
-    const compliant = violations.filter(v => 
-      v.classification === 'full_face_helmet' || v.detection_status === 'compliant'
-    ).length;
-    
-    setViolationTypes([
-      { name: 'No Helmet', value: noHelmet, color: 'hsl(var(--destructive))' },
-      { name: 'Partial Helmet', value: partialHelmet, color: 'hsl(var(--accent))' },
-      { name: 'Compliant', value: compliant, color: 'hsl(var(--primary))' },
-    ]);
   };
 
   useViolationNotifications();
@@ -143,7 +96,7 @@ const Dashboard = () => {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">{stat.title}</p>
                   <h3 className="text-3xl font-bold text-foreground mt-2">{stat.value}</h3>
-                  <p className={`text-xs mt-2 ${stat.color}`}>{stat.trend} from last week</p>
+                  <p className={`text-xs mt-2 ${stat.color}`}>{stat.subtitle}</p>
                 </div>
                 <div className={`p-3 rounded-lg bg-primary/10`}>
                   <stat.icon className={`w-6 h-6 ${stat.color}`} />

@@ -1,11 +1,13 @@
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from django.db.models import Count
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 import django_filters
@@ -22,7 +24,13 @@ from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics import renderPDF
 
 from .models import Violation
-from .serializers import ViolationSerializer
+from .serializers import (
+    ViolationSerializer,
+    ViolationSummarySerializer,
+    ViolationWeeklyChartSerializer,
+)
+from users.models import AdminNotification
+from users.permissions import IsAdmin, IsYoloService
 
 
 class ViolationFilter(django_filters.FilterSet):
@@ -37,25 +45,108 @@ class ViolationFilter(django_filters.FilterSet):
 class ViolationViewSet(viewsets.ModelViewSet):
     queryset = Violation.objects.select_related('reviewed_by__profile').all().order_by('-detected_at')
     serializer_class = ViolationSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ViolationFilter
     ordering_fields = ['detected_at', 'confidence_score']
     ordering = ['-detected_at']
 
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsYoloService()]
+        return [IsAuthenticated()]
+
     def perform_update(self, serializer):
         instance = self.get_object()
+        previous_status = instance.review_status
         new_status = serializer.validated_data.get('review_status')
+
         if new_status and new_status != instance.review_status and new_status in ('reviewed', 'resolved'):
-            serializer.save(reviewed_by=self.request.user, reviewed_at=timezone.now())
+            updated_violation = serializer.save(reviewed_by=self.request.user, reviewed_at=timezone.now())
         elif new_status == 'pending':
-            serializer.save(reviewed_by=None, reviewed_at=None)
+            updated_violation = serializer.save(reviewed_by=None, reviewed_at=None)
         else:
-            serializer.save()
+            updated_violation = serializer.save()
+
+        if new_status and new_status != previous_status:
+            AdminNotification.create_for_violation_action(
+                actor=self.request.user,
+                violation=updated_violation,
+                previous_status=instance.get_review_status_display(),
+                new_status=updated_violation.get_review_status_display(),
+            )
+
+
+class ViolationSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localdate()
+        week_start = today - timedelta(days=6)
+        queryset = Violation.objects.select_related("camera")
+
+        class_counts = {
+            row["classification"]: row["count"]
+            for row in queryset.values("classification").annotate(count=Count("id"))
+        }
+        camera_counts = queryset.values("camera__name").annotate(count=Count("id")).order_by("-count", "camera__name")
+
+        summary = {
+            "total_violations": queryset.count(),
+            "pending_violations": queryset.filter(review_status="pending").count(),
+            "today_violations": queryset.filter(detected_at__date=today).count(),
+            "this_week_violations": queryset.filter(detected_at__date__range=(week_start, today)).count(),
+            "by_class": [
+                {
+                    "classification": code,
+                    "label": label,
+                    "count": class_counts.get(code, 0),
+                }
+                for code, label in Violation.CLASSIFICATION_CHOICES
+            ],
+            "by_camera": [
+                {
+                    "camera_name": row["camera__name"] or "Unknown",
+                    "count": row["count"],
+                }
+                for row in camera_counts
+            ],
+        }
+
+        serializer = ViolationSummarySerializer(summary)
+        return Response(serializer.data)
+
+
+class ViolationWeeklyChartView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localdate()
+        start_date = today - timedelta(days=6)
+
+        counts_by_day = {
+            row["detected_at__date"]: row["count"]
+            for row in (
+                Violation.objects
+                .filter(detected_at__date__range=(start_date, today))
+                .values("detected_at__date")
+                .annotate(count=Count("id"))
+            )
+        }
+
+        payload = [
+            {
+                "date": start_date + timedelta(days=offset),
+                "count": counts_by_day.get(start_date + timedelta(days=offset), 0),
+            }
+            for offset in range(7)
+        ]
+
+        serializer = ViolationWeeklyChartSerializer(payload, many=True)
+        return Response(serializer.data)
 
 
 class ViolationExportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def _get_qs(self, request):
         qs = Violation.objects.all().order_by('-detected_at')

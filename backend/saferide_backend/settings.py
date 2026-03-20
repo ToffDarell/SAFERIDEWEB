@@ -6,6 +6,17 @@ from pathlib import Path
 from datetime import timedelta
 from decouple import config
 
+
+def parse_debug(value):
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "debug", "development"}:
+        return True
+    if text in {"0", "false", "no", "off", "release", "production"}:
+        return False
+    return False
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -18,7 +29,7 @@ RECAPTCHA_PRIVATE_KEY = config('RECAPTCHA_PRIVATE_KEY')
 
 
 
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = parse_debug(config('DEBUG', default='true'))
 
 ALLOWED_HOSTS = []
 
@@ -36,6 +47,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework.authtoken',  # Required for dj-rest-auth
+    'rest_framework_api_key',
     
     # CORS
     'corsheaders',

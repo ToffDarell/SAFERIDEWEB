@@ -1,4 +1,4 @@
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
@@ -10,7 +10,7 @@ class ApprovedTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         if not (user.is_staff or user.is_superuser):
             if not profile or profile.status != "approved":
-                raise AuthenticationFailed("Account is not approved.")
+                raise PermissionDenied("Account is not approved.")
 
         return super().get_token(user)
 

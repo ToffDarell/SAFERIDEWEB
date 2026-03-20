@@ -148,39 +148,24 @@ const Reports = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold text-foreground">Violation Reports</h2>
-          <p className="text-muted-foreground">
-            {isOperator ? 'Read-only violation summaries' : 'Comprehensive violation analytics'}
-          </p>
+          <p className="text-muted-foreground">Comprehensive violation analytics</p>
         </div>
         <div className="flex items-center gap-3">
-          {!isOperator && (
-            <div className="flex items-center gap-2">
-              <Button onClick={() => handleGenerateReport('csv')} variant="outline">
-                <FileText className="w-4 h-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button onClick={() => handleGenerateReport('pdf')}>
-                <FileText className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <Button onClick={() => handleGenerateReport('csv')} variant="outline">
+              <FileText className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+            <Button onClick={() => handleGenerateReport('pdf')}>
+              <FileText className="w-4 h-4 mr-2" />
+              Export PDF
+            </Button>
+          </div>
           <FileText className="w-8 h-8 text-primary" />
         </div>
       </div>
 
-      {isOperator && (
-        <Card className="bg-card border-border border-orange-500/50">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-orange-500">
-              <AlertCircle className="w-5 h-5" />
-              <p className="text-sm font-medium">
-                TMC Operators have read-only access. Export and system configuration are disabled.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {summaryData.map((item) => {

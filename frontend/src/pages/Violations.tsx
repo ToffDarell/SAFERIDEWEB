@@ -133,13 +133,16 @@ const Violations = () => {
   };
 
   const getStatusBadge = (classification: string) => {
-    if (classification === 'no_helmet' || classification === 'nutshell') {
+    if (classification === 'no_helmet') {
       return 'No Helmet';
-    } else if (classification === 'half_face_helmet') {
-      return 'Partial Helmet';
-    } else {
-      return 'Full Face Helmet';
     }
+    if (classification === 'nutshell') {
+      return 'Nutshell';
+    }
+    if (classification === 'license_plate') {
+      return 'License Plate';
+    }
+    return 'Helmet';
   };
 
   const filteredViolations = violations.filter(v => {

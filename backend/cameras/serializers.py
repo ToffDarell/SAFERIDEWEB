@@ -6,8 +6,6 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemSettings
         fields = [
-            'auto_logout',
-            'session_timeout',
             'password_min_length',
             'confidence_threshold',
             'send_cooldown_seconds',

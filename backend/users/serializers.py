@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import UserProfile
+from cameras.models import SystemSettings
+from .models import AdminNotification, UserProfile
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,8 +18,8 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
-    password_confirm = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True)
+    password_confirm = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES, default='tmc_operator')
     phone = serializers.CharField(required=False, allow_blank=True)
     organization = serializers.CharField(required=False, allow_blank=True)
@@ -28,8 +29,14 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'password', 'password_confirm', 'first_name', 'last_name', 'role', 'phone', 'organization']
     
     def validate(self, data):
+        min_length = max(1, SystemSettings.get_settings().password_min_length)
+
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError({"password": "Passwords do not match"})
+
+        if len(data['password']) < min_length:
+            raise serializers.ValidationError({"password": f"Password must be at least {min_length} characters"})
+
         return data
     
     def create(self, validated_data):
@@ -74,3 +81,41 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
 
         return user
+
+
+class AdminNotificationSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+    actor_role = serializers.SerializerMethodField()
+    violation_id = serializers.IntegerField(source='violation.id', read_only=True)
+
+    class Meta:
+        model = AdminNotification
+        fields = [
+            'id',
+            'notification_type',
+            'title',
+            'message',
+            'is_read',
+            'created_at',
+            'actor',
+            'actor_name',
+            'actor_role',
+            'violation',
+            'violation_id',
+        ]
+        read_only_fields = fields
+
+    def get_actor_name(self, obj):
+        if not obj.actor:
+            return None
+        return obj.actor.get_full_name().strip() or obj.actor.username
+
+    def get_actor_role(self, obj):
+        if not obj.actor:
+            return None
+        profile = getattr(obj.actor, 'profile', None)
+        if profile:
+            return profile.get_role_display()
+        if obj.actor.is_superuser or obj.actor.is_staff:
+            return 'Administrator'
+        return None

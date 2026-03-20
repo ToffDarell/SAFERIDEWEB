@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import UserProfile
+from .models import AdminNotification, UserProfile
 
 
 @admin.register(UserProfile)
@@ -18,3 +18,11 @@ class UserProfileAdmin(admin.ModelAdmin):
     def reject_users(self, request, queryset):
         queryset.update(status='rejected')
     reject_users.short_description = "Reject selected users"
+
+
+@admin.register(AdminNotification)
+class AdminNotificationAdmin(admin.ModelAdmin):
+    list_display = ['title', 'actor', 'violation', 'is_read', 'created_at']
+    list_filter = ['notification_type', 'is_read', 'created_at']
+    search_fields = ['title', 'message', 'actor__username', 'actor__email', 'violation__plate_number']
+    readonly_fields = ['title', 'message', 'notification_type', 'actor', 'violation', 'created_at']

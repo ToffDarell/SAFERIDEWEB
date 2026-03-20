@@ -2,12 +2,17 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import UserProfile
-from .permissions import IsApprovedUser
-from .serializers import UserRegistrationSerializer, UserSerializer
+from .models import AdminNotification, UserProfile
+from .permissions import IsAdmin, IsApprovedUser, is_admin_user
+from .serializers import (
+    AdminNotificationSerializer,
+    UserRegistrationSerializer,
+    UserSerializer,
+)
+from cameras.models import SystemSettings
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -18,7 +23,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user or not user.is_authenticated:
             return User.objects.none()
-        if user.is_staff or user.is_superuser:
+        if is_admin_user(user):
             return User.objects.all().order_by("id")
         return User.objects.filter(id=user.id)
 
@@ -27,7 +32,7 @@ class UserViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         if self.action in ["me", "update_me", "change_password"]:
             return [IsApprovedUser()]
-        return [IsAdminUser()]
+        return [IsAdmin()]
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -54,17 +59,17 @@ class UserViewSet(viewsets.ModelViewSet):
                 "email": request.user.email,
                 "first_name": request.user.first_name,
                 "last_name": request.user.last_name,
-                "role": "admin" if request.user.is_staff or request.user.is_superuser else "tmc_operator",
+                "role": "admin" if is_admin_user(request.user) else "tmc_operator",
                 "status": "approved",
             })
 
-    @action(detail=False, methods=["get"], permission_classes=[IsAdminUser])
+    @action(detail=False, methods=["get"], permission_classes=[IsAdmin])
     def pending(self, request):
         pending_users = User.objects.filter(profile__status="pending")
         serializer = self.get_serializer(pending_users, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
     def approve(self, request, pk=None):
         user = self.get_object()
         profile = user.profile
@@ -79,7 +84,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
         return Response({"message": f"User {user.username} approved"})
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
     def reject(self, request, pk=None):
         user = self.get_object()
         profile = user.profile
@@ -94,12 +99,13 @@ class UserViewSet(viewsets.ModelViewSet):
 
         return Response({"message": f"User {user.username} rejected"})
 
-    @action(detail=False, methods=["post"], url_path="create-operator", permission_classes=[IsAdminUser])
+    @action(detail=False, methods=["post"], url_path="create-operator", permission_classes=[IsAdmin])
     def create_operator(self, request):
         name = request.data.get("name", "").strip()
         email = request.data.get("email", "").strip()
         password = request.data.get("password", "").strip()
         requested_role = request.data.get("role", "tmc_operator").strip()
+        min_length = max(1, SystemSettings.get_settings().password_min_length)
 
         if requested_role not in ["admin", "tmc_operator"]:
             requested_role = "tmc_operator"
@@ -107,6 +113,12 @@ class UserViewSet(viewsets.ModelViewSet):
         if not email or not password:
             return Response(
                 {"error": "Email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(password) < min_length:
+            return Response(
+                {"error": f"Password must be at least {min_length} characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -163,11 +175,48 @@ class UserViewSet(viewsets.ModelViewSet):
         user.save()
         return Response({"detail": "Profile updated."})
 
+    @action(detail=False, methods=["get"], url_path="admin-notifications", permission_classes=[IsAdmin])
+    def admin_notifications(self, request):
+        unread_only = str(request.query_params.get("unread_only", "")).lower() in {"1", "true", "yes"}
+        queryset = AdminNotification.objects.select_related(
+            "actor",
+            "actor__profile",
+            "violation",
+        )
+        if unread_only:
+            queryset = queryset.filter(is_read=False)
+
+        serializer = AdminNotificationSerializer(queryset[:50], many=True)
+        return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"admin-notifications/(?P<notification_id>\d+)/mark-read",
+        permission_classes=[IsAdmin],
+    )
+    def mark_admin_notification_read(self, request, notification_id=None):
+        updated = AdminNotification.objects.filter(id=notification_id).update(is_read=True)
+        if not updated:
+            return Response({"error": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Notification marked as read."})
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="admin-notifications/mark-all-read",
+        permission_classes=[IsAdmin],
+    )
+    def mark_all_admin_notifications_read(self, request):
+        updated = AdminNotification.objects.filter(is_read=False).update(is_read=True)
+        return Response({"detail": f"{updated} notification(s) marked as read."})
+
     @action(detail=False, methods=["post"], url_path="change-password")
     def change_password(self, request):
         user = request.user
         current_password = request.data.get("current_password", "")
         new_password = request.data.get("new_password", "")
+        min_length = max(1, SystemSettings.get_settings().password_min_length)
 
         if not user.check_password(current_password):
             return Response(
@@ -175,9 +224,9 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if len(new_password) < 8:
+        if len(new_password) < min_length:
             return Response(
-                {"error": "New password must be at least 8 characters."},
+                {"error": f"New password must be at least {min_length} characters."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

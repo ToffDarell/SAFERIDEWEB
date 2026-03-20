@@ -1,136 +1,27 @@
-import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
-import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, X, MonitorPlay } from 'lucide-react';
+import { Link, useLocation, Outlet } from 'react-router-dom';
+import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, MonitorPlay } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { authService } from '@/services/auth';
-import { violationsService } from '@/services/violations';
+import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 
 export const Layout = () => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [notifications, setNotifications] = useState<any[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const lastViolationIdRef = useRef<number>(0);
-  const initializedRef = useRef(false);
-
-  const addNotification = useCallback((violation: any) => {
-    const newNotification = {
-      id: Date.now(),
-      violationId: violation.id,
-      message: `New violation detected: ${violation.plate_number || 'Unknown plate'} at ${violation.camera_name || 'Unknown location'}`,
-      time: new Date().toISOString(),
-      read: false,
-    };
-
-    setNotifications(prev => {
-      const updated = [newNotification, ...prev].slice(0, 50);
-      localStorage.setItem('notifications', JSON.stringify(updated));
-      return updated;
-    });
-
-    lastViolationIdRef.current = violation.id;
-    localStorage.setItem('lastViolationId', violation.id.toString());
-    console.log(`✅ New violation detected: ID ${violation.id}`);
-  }, []);
-
-  useEffect(() => {
-    // Check if we need to reset notifications for a new day
-    const today = new Date().toDateString();
-    const lastNotificationDate = localStorage.getItem('lastNotificationDate');
-
-    if (lastNotificationDate !== today) {
-      // New day - reset notifications
-      localStorage.setItem('notifications', '[]');
-      localStorage.setItem('lastNotificationDate', today);
-      localStorage.setItem('lastViolationId', '0');
-      setNotifications([]);
-      lastViolationIdRef.current = 0;
-    } else {
-      // Same day - load existing notifications
-      const storedNotifications = JSON.parse(localStorage.getItem('notifications') || '[]');
-      setNotifications(storedNotifications);
-
-      const storedLastId = parseInt(localStorage.getItem('lastViolationId') || '0');
-      lastViolationIdRef.current = storedLastId;
-    }
-
-    // Seed the last known violation ID on first load so old violations don't trigger notifications
-    const seedLastId = async () => {
-      try {
-        const data = await violationsService.getViolations({ ordering: '-id', page_size: 1 });
-        const latestViolation = data.results?.[0];
-        if (latestViolation && latestViolation.id > lastViolationIdRef.current) {
-          // Only seed — don't notify for this existing violation
-          lastViolationIdRef.current = latestViolation.id;
-          localStorage.setItem('lastViolationId', latestViolation.id.toString());
-        }
-      } catch (error) {
-        console.error('Failed to seed last violation ID:', error);
-      }
-      initializedRef.current = true;
-    };
-    seedLastId();
-
-    // Poll for new violations every 5 seconds
-    const pollInterval = setInterval(async () => {
-      if (!initializedRef.current) return; // Wait until seeded
-      try {
-        const data = await violationsService.getViolations({ ordering: '-id', page_size: 1 });
-        const latestViolation = data.results?.[0];
-
-        if (latestViolation && latestViolation.id > lastViolationIdRef.current) {
-          // Only notify if the violation is recent (within the last 30 seconds)
-          const violationTime = new Date(latestViolation.detected_at).getTime();
-          const now = Date.now();
-          if (now - violationTime < 30000) {
-            addNotification(latestViolation);
-          } else {
-            // Old violation with higher ID — just update the bookmark without notifying
-            lastViolationIdRef.current = latestViolation.id;
-            localStorage.setItem('lastViolationId', latestViolation.id.toString());
-          }
-        }
-      } catch (error) {
-        console.error('Failed to poll violations:', error);
-      }
-    }, 5000);
-
-    return () => clearInterval(pollInterval);
-  }, [addNotification]);
+  const isAdmin = currentUser.role === 'admin';
+  const { notifications, unreadCount, markAsRead, loading } = useAdminNotifications();
   
   const handleLogout = () => {
     authService.logout();
     localStorage.removeItem('currentUser');
-    localStorage.removeItem('notifications');
-    localStorage.removeItem('lastViolationId');
-    localStorage.removeItem('lastNotificationDate');
     setShowLogoutDialog(false);
-    navigate('/');
+    window.location.href = '/';
   };
-  
-  const markAllAsRead = () => {
-    const updated = notifications.map(n => ({ ...n, read: true }));
-    setNotifications(updated);
-    localStorage.setItem('notifications', JSON.stringify(updated));
-  };
-  
-  const dismissNotification = (notificationId: number) => {
-    const updated = notifications.filter(n => n.id !== notificationId);
-    setNotifications(updated);
-    localStorage.setItem('notifications', JSON.stringify(updated));
-  };
-
-  const clearAllNotifications = () => {
-    setNotifications([]);
-    localStorage.setItem('notifications', '[]');
-  };
-  
-  const unreadCount = notifications.filter(n => !n.read).length;
   
   const isActive = (path: string) => location.pathname === path;
   
@@ -253,62 +144,62 @@ export const Layout = () => {
             </div>
             
             <div className="flex items-center gap-4">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" className="relative">
-                    <Bell className="w-4 h-4" />
-                    {unreadCount > 0 && (
-                      <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
-                        {unreadCount}
-                      </Badge>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-80">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-sm">Notifications</h4>
-                      <div className="flex gap-1">
-                        {unreadCount > 0 && (
-                          <Button variant="ghost" size="sm" onClick={markAllAsRead}>
-                            Mark all read
-                          </Button>
+              {isAdmin && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="sm" className="relative">
+                      <Bell className="w-4 h-4" />
+                      {unreadCount > 0 && (
+                        <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                          {unreadCount}
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-sm">Admin Notifications</h4>
+                        {loading && (
+                          <span className="text-xs text-muted-foreground">Loading...</span>
                         )}
-                        {notifications.length > 0 && (
-                          <Button variant="ghost" size="sm" onClick={clearAllNotifications} className="text-destructive hover:text-destructive">
-                            Clear all
-                          </Button>
+                      </div>
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {!loading && notifications.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No admin notifications
+                          </p>
+                        ) : (
+                          notifications.map((notification) => (
+                            <button
+                              key={notification.id}
+                              type="button"
+                              onClick={() => {
+                                if (!notification.is_read) {
+                                  markAsRead(notification.id);
+                                }
+                              }}
+                              className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                                notification.is_read
+                                  ? 'bg-background'
+                                  : 'bg-accent/10 border-accent'
+                              }`}
+                            >
+                              <p className="text-sm font-medium">{notification.title}</p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {notification.message}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                {new Date(notification.created_at).toLocaleString()}
+                              </p>
+                            </button>
+                          ))
                         )}
                       </div>
                     </div>
-                    <div className="space-y-2 max-h-80 overflow-y-auto">
-                      {notifications.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-4">No notifications today</p>
-                      ) : (
-                        notifications.map((notif) => (
-                          <div 
-                            key={notif.id} 
-                            className={`p-3 rounded-lg border relative group ${notif.read ? 'bg-background' : 'bg-accent/10 border-accent'}`}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => dismissNotification(notif.id)}
-                              className="absolute top-1 right-1 h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                            <p className="text-sm pr-6">{notif.message}</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(notif.time).toLocaleString()}
-                            </p>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           </div>
         </header>

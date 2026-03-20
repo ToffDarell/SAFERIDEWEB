@@ -18,9 +18,9 @@ class Violation(models.Model):
     
     CLASSIFICATION_CHOICES = [
         ('no_helmet', 'No Helmet'),
-        ('nutshell', 'Nutshell Helmet'),
-        ('half_face_helmet', 'Half Face Helmet'),
-        ('full_face_helmet', 'Full Face Helmet'),
+        ('helmet', 'Helmet'),
+        ('nutshell', 'Nutshell'),
+        ('license_plate', 'License Plate'),
     ]
     
     camera = models.ForeignKey(Camera, on_delete=models.CASCADE, related_name='violations')

@@ -4,9 +4,7 @@ from django.db import models
 class SystemSettings(models.Model):
     
     """Singleton model — only one row (pk=1) will ever exist."""
-    #Security
-    auto_logout = models.BooleanField(default=True)
-    session_timeout = models.IntegerField(default=30)     
+    # Security
     password_min_length = models.IntegerField(default=8)
 
     # Detection YOLO

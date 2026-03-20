@@ -7,7 +7,7 @@ export interface Violation {
   detected_at: string;
   detection_status: 'compliant' | 'violation';
   confidence_score: number;
-  classification: 'no_helmet' | 'nutshell' | 'helmet';
+  classification: 'no_helmet' | 'helmet' | 'nutshell' | 'license_plate';
   plate_number: string | null;
   evidence_image: string | null;
   bounding_box: any;
@@ -18,6 +18,31 @@ export interface Violation {
   reviewed_by_name: string | null;
   reviewed_by_role: string | null;
   reviewed_at: string | null;
+}
+
+export interface ViolationSummaryClassItem {
+  classification: string;
+  label: string;
+  count: number;
+}
+
+export interface ViolationSummaryCameraItem {
+  camera_name: string;
+  count: number;
+}
+
+export interface ViolationSummary {
+  total_violations: number;
+  pending_violations: number;
+  today_violations: number;
+  this_week_violations: number;
+  by_class: ViolationSummaryClassItem[];
+  by_camera: ViolationSummaryCameraItem[];
+}
+
+export interface ViolationWeeklyChartPoint {
+  date: string;
+  count: number;
 }
 
 export interface ViolationFilters {
@@ -39,6 +64,16 @@ export const violationsService = {
   // Get single violation
   async getViolation(id: number) {
     const response = await apiClient.get(`/violations/${id}/`);
+    return response.data;
+  },
+
+  async getSummary(): Promise<ViolationSummary> {
+    const response = await apiClient.get('/violations/summary/');
+    return response.data;
+  },
+
+  async getWeeklyChart(): Promise<ViolationWeeklyChartPoint[]> {
+    const response = await apiClient.get('/violations/weekly-chart/');
     return response.data;
   },
 

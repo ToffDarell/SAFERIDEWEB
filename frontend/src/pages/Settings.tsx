@@ -48,13 +48,6 @@ const Settings = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showOpPassword, setShowOpPassword] = useState(false);
 
-  // System Settings state
-  const [systemSettings, setSystemSettings] = useState({
-    auto_logout: true,
-    session_timeout: 30,
-    password_min_length: 8,
-  });
-
   // Detection Settings state
   const [detectionSettings, setDetectionSettings] = useState({
     confidence_threshold: 0.60,
@@ -109,27 +102,21 @@ const Settings = () => {
       const userData = JSON.parse(user);
       setCurrentUser(userData);
       setIsAdmin(userData.role === 'admin');
-      if (userData.role === 'admin') loadSystemSettings();
+      loadSystemSettings();
     }
   }, []);
 
-  // ← ADD THIS: reload settings whenever detection or system tab is opened
   useEffect(() => {
-    if ((activeTab === 'detection' || activeTab === 'system') && isAdmin) {
+    if (activeTab === 'detection') {
       loadSystemSettings();
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab]);
 
   const loadSystemSettings = async () => {
     try {
       const resp = await fetch(`${API_BASE}/settings/`, { headers: getAuthHeaders() });
       if (!resp.ok) return;
       const data = await resp.json();
-      setSystemSettings({
-        auto_logout:         data.auto_logout         ?? true,
-        session_timeout:     data.session_timeout     ?? 30,
-        password_min_length: data.password_min_length ?? 8,
-      });
       setDetectionSettings({
         confidence_threshold:  data.confidence_threshold  != null ? parseFloat(data.confidence_threshold)  : 0.60,
         send_cooldown_seconds: data.send_cooldown_seconds != null ? parseFloat(data.send_cooldown_seconds) : 3.0,
@@ -267,15 +254,6 @@ const Settings = () => {
         if (!resp.ok) throw new Error(await resp.text());
       }
 
-      if (section === 'Security Policies') {
-        const resp = await fetch(`${API_BASE}/settings/`, {
-          method: 'PATCH',
-          headers: getAuthHeaders(),
-          body: JSON.stringify(systemSettings),
-        });
-        if (!resp.ok) throw new Error(await resp.text());
-      }
-
       if (section === 'Detection') {
         const resp = await fetch(`${API_BASE}/settings/`, {
           method: 'PATCH',
@@ -373,7 +351,7 @@ const Settings = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v: string) => { setActiveTab(v); setSearchParams({ tab: v }); }} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-7">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
           <TabsTrigger value="profile" className="gap-2">
             <User className="w-4 h-4" />
             Profile
@@ -390,22 +368,15 @@ const Settings = () => {
             <Palette className="w-4 h-4" />
             UI & Preferences
           </TabsTrigger>
+          <TabsTrigger value="detection" className="gap-2">
+            <Monitor className="w-4 h-4" />
+            Detection
+          </TabsTrigger>
           {isAdmin && (
-            <>
-              <TabsTrigger value="detection" className="gap-2">
-                <Monitor className="w-4 h-4" />
-                Detection
-              </TabsTrigger>
-              <TabsTrigger value="system" className="gap-2">
-                <Database className="w-4 h-4" />
-                System
-              </TabsTrigger>
-              <TabsTrigger value="users" className="gap-2">
-                <Users className="w-4 h-4" />
-                Users
-              </TabsTrigger>
-              {/* Reports tab removed from Settings; use dedicated Reports page instead */}
-            </>
+            <TabsTrigger value="users" className="gap-2">
+              <Users className="w-4 h-4" />
+              Users
+            </TabsTrigger>
           )}
         </TabsList>
 
@@ -494,7 +465,7 @@ const Settings = () => {
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                      <strong>Admin Only:</strong> Configure global password policies and session timeouts in the System tab.
+                      <strong>Admin Only:</strong> Configure global password policies in the System tab.
                     </AlertDescription>
                   </Alert>
                 </>
@@ -632,30 +603,35 @@ const Settings = () => {
           </Card>
         </TabsContent>
 
-        {/* Detection Settings - Admin Only */}
-        {isAdmin && (
-          <TabsContent value="detection" className="space-y-6">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <Monitor className="w-5 h-5 text-primary" />
-                  <div>
-                    <CardTitle>AI Detection Configuration</CardTitle>
-                    <CardDescription>Configure detection parameters and camera management</CardDescription>
-                  </div>
+        {/* Detection Settings - Read-only for TMC Operators */}
+        <TabsContent value="detection" className="space-y-6">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Monitor className="w-5 h-5 text-primary" />
+                <div>
+                  <CardTitle>AI Detection Configuration</CardTitle>
+                  <CardDescription>{isAdmin ? 'Configure detection parameters' : 'View current detection configuration (read-only)'}</CardDescription>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {!isAdmin && (
+                <div className="flex items-center gap-2 rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-2 text-sm text-blue-600 dark:text-blue-400">
+                  <Eye className="w-4 h-4 shrink-0" />
+                  <span>Read-only view. Contact an administrator to modify detection settings.</span>
+                </div>
+              )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="confidence-threshold">
+              <div className="space-y-2">
+                <Label htmlFor="confidence-threshold">
                     Confidence Threshold — <span className="text-primary font-semibold">
                       {isNaN(detectionSettings.confidence_threshold)
                         ? '60'
                         : (detectionSettings.confidence_threshold * 100).toFixed(0)}%
                     </span>
                   </Label>
-                  <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                     YOLO inference floor — applies to all classes before per-class thresholds. Keep this ≤ your lowest per-class value below.
                   </p>
                   <input
@@ -668,7 +644,8 @@ const Settings = () => {
                     onChange={(e) =>
                       setDetectionSettings(s => ({ ...s, confidence_threshold: parseFloat(e.target.value) }))
                     }
-                    className="w-full accent-primary"
+                    disabled={!isAdmin}
+                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>30% (Sensitive)</span>
@@ -722,7 +699,8 @@ const Settings = () => {
                       onChange={(e) =>
                         setDetectionSettings(s => ({ ...s, conf_no_helmet: parseFloat(e.target.value) }))
                       }
-                      className="w-full accent-destructive"
+                      disabled={!isAdmin}
+                      className="w-full accent-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>30% (Lenient)</span>
@@ -747,7 +725,8 @@ const Settings = () => {
                       onChange={(e) =>
                         setDetectionSettings(s => ({ ...s, conf_nutshell: parseFloat(e.target.value) }))
                       }
-                      className="w-full accent-orange-500"
+                      disabled={!isAdmin}
+                      className="w-full accent-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>30% (Lenient)</span>
@@ -772,7 +751,8 @@ const Settings = () => {
                       onChange={(e) =>
                         setDetectionSettings(s => ({ ...s, conf_helmet: parseFloat(e.target.value) }))
                       }
-                      className="w-full accent-green-500"
+                      disabled={!isAdmin}
+                      className="w-full accent-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>30% (Lenient)</span>
@@ -797,7 +777,8 @@ const Settings = () => {
                       onChange={(e) =>
                         setDetectionSettings(s => ({ ...s, conf_license_plate: parseFloat(e.target.value) }))
                       }
-                      className="w-full accent-cyan-500"
+                      disabled={!isAdmin}
+                      className="w-full accent-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>30% (Lenient)</span>
@@ -829,7 +810,8 @@ const Settings = () => {
                     onChange={(e) =>
                       setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))
                     }
-                    className="w-full accent-primary"
+                    disabled={!isAdmin}
+                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>1s (Fast)</span>
@@ -860,7 +842,8 @@ const Settings = () => {
                     onChange={(e) =>
                       setDetectionSettings(s => ({ ...s, ocr_confidence: parseFloat(e.target.value) }))
                     }
-                    className="w-full accent-primary"
+                    disabled={!isAdmin}
+                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>10% (Permissive)</span>
@@ -884,96 +867,23 @@ const Settings = () => {
                     onChange={(e) =>
                       setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))
                     }
+                    disabled={!isAdmin}
                   />
                 </div>
 
                 <Separator />
 
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <Camera className="w-4 h-4" />
-                    Camera Management
-                  </Label>
-                  <div className="space-y-2">
-                    <Button variant="outline" className="w-full justify-start">
-                      <Camera className="w-4 h-4 mr-2" />
-                      Add New Camera
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start" onClick={() => navigate('/cameras')}>
-                      <Eye className="w-4 h-4 mr-2" />
-                      View All Cameras
-                    </Button>
-                  </div>
-                </div>
-
+              {isAdmin && (
                 <Button
                   onClick={() => handleSave('Detection')}
                   disabled={savingSection === 'Detection'}
                 >
                   {savingSection === 'Detection' ? 'Saving...' : 'Save Detection Settings'}
                 </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* System Settings - Admin Only */}
-        {isAdmin && (
-          <TabsContent value="system" className="space-y-6">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <Lock className="w-5 h-5 text-destructive" />
-                  <div>
-                    <CardTitle>Global Security Policies</CardTitle>
-                    <CardDescription>System-wide security and session management</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="auto-logout">Auto Logout</Label>
-                    <p className="text-sm text-muted-foreground">Automatically log out inactive users</p>
-                  </div>
-                  <Switch
-                    id="auto-logout"
-                    checked={systemSettings.auto_logout}
-                    onCheckedChange={(v) => setSystemSettings(s => ({ ...s, auto_logout: v }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="session-timeout">Session Timeout (minutes)</Label>
-                  <Input
-                    id="session-timeout"
-                    type="number"
-                    value={systemSettings.session_timeout}
-                    min="5"
-                    max="120"
-                    onChange={(e) => setSystemSettings(s => ({ ...s, session_timeout: Number(e.target.value) }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password-policy">Password Minimum Length</Label>
-                  <Input
-                    id="password-policy"
-                    type="number"
-                    value={systemSettings.password_min_length}
-                    min="6"
-                    max="32"
-                    onChange={(e) => setSystemSettings(s => ({ ...s, password_min_length: Number(e.target.value) }))}
-                  />
-                </div>
-
-                <Button onClick={() => handleSave('Security Policies')} disabled={savingSection === 'Security Policies'}>
-                  {savingSection === 'Security Policies' ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Users Management - Admin Only */}
         {isAdmin && (

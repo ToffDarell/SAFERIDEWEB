@@ -32,3 +32,28 @@ class ViolationSerializer(serializers.ModelSerializer):
             if obj.reviewed_by.is_superuser or obj.reviewed_by.is_staff:
                 return 'Administrator'
         return None
+
+
+class ViolationSummaryClassSerializer(serializers.Serializer):
+    classification = serializers.CharField()
+    label = serializers.CharField()
+    count = serializers.IntegerField()
+
+
+class ViolationSummaryCameraSerializer(serializers.Serializer):
+    camera_name = serializers.CharField()
+    count = serializers.IntegerField()
+
+
+class ViolationSummarySerializer(serializers.Serializer):
+    total_violations = serializers.IntegerField()
+    pending_violations = serializers.IntegerField()
+    today_violations = serializers.IntegerField()
+    this_week_violations = serializers.IntegerField()
+    by_class = ViolationSummaryClassSerializer(many=True)
+    by_camera = ViolationSummaryCameraSerializer(many=True)
+
+
+class ViolationWeeklyChartSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    count = serializers.IntegerField()
