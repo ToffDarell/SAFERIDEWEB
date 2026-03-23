@@ -7,12 +7,21 @@ Handles all HTTP communication with the Django backend:
 """
 
 import os
+import json
 import cv2
 import requests
 from datetime import datetime
 
 
 BASE_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+
+
+def _now_local():
+    """
+    Return a timezone-aware local datetime.
+    This avoids Django interpreting naive timestamps as UTC.
+    """
+    return datetime.now().astimezone()
 
 
 def _auth_headers(content_type=None):
@@ -28,9 +37,10 @@ def _auth_headers(content_type=None):
 def update_camera_status(camera_id, status='active', stream_url=''):
     try:
         url = f"{BASE_URL}/api/cameras/{camera_id}/heartbeat/"
+        now = _now_local()
         payload = {
             'status': status,
-            'last_seen_at': datetime.now().isoformat(),
+            'last_seen_at': now.isoformat(),
             'stream_url': stream_url,
         }
         response = requests.post(url, json=payload, headers=_auth_headers('application/json'))
@@ -46,8 +56,9 @@ def send_violation_to_backend(detection_data, frame_bgr):
     try:
         url = f"{BASE_URL}/api/violations/"
         camera_id = int(os.getenv('CAMERA_ID', '2'))
+        now = _now_local()
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
         evidence_dir = os.getenv("EVIDENCE_DIR", "evidence")
         os.makedirs(evidence_dir, exist_ok=True)
         image_path = os.path.join(evidence_dir, f"violation_{timestamp}.jpg")
@@ -55,12 +66,12 @@ def send_violation_to_backend(detection_data, frame_bgr):
 
         payload = {
             'camera': camera_id,
-            'detected_at': datetime.now().isoformat(),
+            'detected_at': now.isoformat(),
             'detection_status': detection_data['status'],
             'confidence_score': detection_data['confidence'],
             'classification': detection_data['classification'],
             'plate_number': detection_data.get('plate_number', ''),
-            'bounding_box': str(detection_data.get('bounding_box', {})),
+            'bounding_box': json.dumps(detection_data.get('bounding_box', {})),
         }
 
         with open(image_path, "rb") as img:
