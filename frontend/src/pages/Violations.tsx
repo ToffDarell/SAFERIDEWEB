@@ -6,13 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Search, Download, CheckCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { violationsService } from '@/services/violations';
+import { violationsService, type Violation } from '@/services/violations';
+import { camerasService } from '@/services/cameras';
 
 const Violations = () => {
   const { toast } = useToast();
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
+  const mediaBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
   // Read preferences saved from Settings page
   const prefs = JSON.parse(localStorage.getItem('userPreferences') || '{}');
@@ -20,10 +23,15 @@ const Violations = () => {
   const defaultFilter: string = prefs.defaultFilter || 'all';
   const showConfidence: boolean = prefs.showConfidence !== false;
 
-  const [violations, setViolations] = useState<any[]>([]);
+  const [violations, setViolations] = useState<Violation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState(defaultFilter);
+  const [filterDate, setFilterDate] = useState('all');
+  const [filterLocation, setFilterLocation] = useState('all');
+  const [filterDetectionStatus, setFilterDetectionStatus] = useState('all');
+  const [filterReviewStatus, setFilterReviewStatus] = useState(defaultFilter);
+  const [selectedEvidence, setSelectedEvidence] = useState<Violation | null>(null);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -31,39 +39,117 @@ const Violations = () => {
   const [totalItems, setTotalItems] = useState(0);
 
   useEffect(() => {
+    const loadLocations = async () => {
+      try {
+        const cameraResponse = await camerasService.getCameras();
+        const cameraList = Array.isArray(cameraResponse)
+          ? cameraResponse
+          : cameraResponse.results || [];
+
+        const nextLocations = Array.from(
+          new Set(
+            cameraList
+              .map((camera: any) => camera.location?.trim())
+              .filter(Boolean)
+          )
+        ).sort((a: string, b: string) => a.localeCompare(b));
+
+        setLocationOptions(nextLocations as string[]);
+      } catch (error) {
+        console.error('Failed to load violation locations:', error);
+      }
+    };
+
+    loadLocations();
+  }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
+
+  useEffect(() => {
     loadViolations();
-    
-    // Silently refresh the table data every 10 seconds (no toast notifications)
+
     const interval = setInterval(async () => {
       if (currentPage !== 1) return;
-      
-      try {
-        const data = await violationsService.getViolations({ page: 1, page_size: itemsPerPage });
-        const newViolations = data.results || [];
-        const count = data.count || 0;
-
-        setTotalItems(count);
-        setTotalPages(Math.ceil(count / itemsPerPage));
-        setViolations(newViolations);
-      } catch {
-        // silently ignore polling errors
-      }
+      await loadViolations(false);
     }, 10000);
-    
-    return () => clearInterval(interval);
-  }, [currentPage]);
 
-  const loadViolations = async () => {
-    setIsLoading(true);
+    return () => clearInterval(interval);
+  }, [currentPage, itemsPerPage, searchQuery, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
+
+  const handleExport = async (format: 'csv' | 'pdf' = 'csv') => {
     try {
-      const data = await violationsService.getViolations({ page: currentPage, page_size: itemsPerPage });
+      toast({
+        title: "Generating Report...",
+        description: `Preparing your ${format.toUpperCase()} file`,
+      });
+
+      const params = new URLSearchParams();
+      params.append("export_format", format);
+      if (searchQuery.trim()) params.append("search", searchQuery.trim());
+      if (filterDate !== "all") params.append("date", filterDate);
+      if (filterLocation !== "all") params.append("location", filterLocation);
+      if (filterDetectionStatus !== "all") params.append("detection_status", filterDetectionStatus);
+      if (filterReviewStatus !== "all") params.append("review_status", filterReviewStatus);
+
+      const token = localStorage.getItem("token");
+      const baseURL = "http://localhost:8000/api";
+      const response = await fetch(`${baseURL}/violations/export/?${params.toString()}`, {
+        headers: {
+            "Authorization": `Bearer ${token}`
+        }
+      });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `saferide_violations_filtered.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export Complete",
+        description: `Report downloaded successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Could not generate report.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const loadViolations = async (showLoader = true) => {
+    if (showLoader) {
+      setIsLoading(true);
+    }
+
+    try {
+      const params: any = {
+        page: currentPage,
+        page_size: itemsPerPage,
+      };
+
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+      if (filterDate !== 'all') params.date = filterDate;
+      if (filterLocation !== 'all') params.location = filterLocation;
+      if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
+      if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
+
+      const data = await violationsService.getViolations(params);
       const violationsList = data.results || [];
       const count = data.count || 0;
       
       setTotalItems(count);
       setTotalPages(Math.ceil(count / itemsPerPage));
 
-      setViolations(violationsList);
+      setViolations(violationsList as Violation[]);
     } catch (error) {
       toast({
         title: "Error loading violations",
@@ -71,7 +157,9 @@ const Violations = () => {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      if (showLoader) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -94,16 +182,6 @@ const Violations = () => {
     try {
       // Step 2: PATCH to backend
       await violationsService.updateReviewStatus(violationId, validStatus);
-
-      // Step 3: Notification
-      const notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
-      notifications.unshift({
-        id: Date.now(),
-        message: `Violation #${violationId} status updated to ${newStatus}`,
-        time: new Date().toISOString(),
-        read: false,
-      });
-      localStorage.setItem('notifications', JSON.stringify(notifications.slice(0, 50)));
 
       toast({
         title: "Status Updated",
@@ -132,6 +210,14 @@ const Violations = () => {
     return date.toLocaleTimeString();
   };
 
+  const getEvidenceUrl = (evidenceImage: string | null) => {
+    if (!evidenceImage) return '';
+    if (evidenceImage.startsWith('http://') || evidenceImage.startsWith('https://')) {
+      return evidenceImage;
+    }
+    return new URL(evidenceImage, mediaBaseUrl).toString();
+  };
+
   const getStatusBadge = (classification: string) => {
     if (classification === 'no_helmet') {
       return 'No Helmet';
@@ -145,22 +231,14 @@ const Violations = () => {
     return 'Helmet';
   };
 
-  const filteredViolations = violations.filter(v => {
-    const matchesSearch =
-      v.plate_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.camera_name?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter =
-      filterStatus === 'all' ||
-      (v.review_status || 'pending') === filterStatus;
-    return matchesSearch && matchesFilter;
-  });
+  const filteredViolations = violations;
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading violations...</p>
+          <p className="app-hint-text">Loading violations...</p>
         </div>
       </div>
     );
@@ -170,11 +248,11 @@ const Violations = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-foreground">Violations</h2>
-          <p className="text-muted-foreground">Detected helmet violations and plate recognition</p>
+          <h2 className="app-page-heading">Violations</h2>
+          <p className="app-body-text text-muted-foreground">Detected helmet violations and plate recognition</p>
         </div>
         {isAdmin && (
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => handleExport('csv')}>
             <Download className="w-4 h-4" />
             Export Report
           </Button>
@@ -182,10 +260,30 @@ const Violations = () => {
       </div>
 
       <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="text-foreground">Recent Violations</CardTitle>
-          <div className="flex flex-col sm:flex-row gap-3 mt-4">
-            <div className="relative flex-1">
+        <CardHeader className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="app-section-title">Filter By</CardTitle>
+              <p className="app-hint-text mt-1">Search, date, location, status, and review status</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-3 text-[12px]"
+              onClick={() => {
+                setSearchQuery('');
+                setFilterDate('all');
+                setFilterLocation('all');
+                setFilterDetectionStatus('all');
+                setFilterReviewStatus('all');
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Search by plate number or camera..."
@@ -194,20 +292,70 @@ const Violations = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Violations</SelectItem>
-                <SelectItem value="pending">Pending Only</SelectItem>
-                <SelectItem value="reviewed">Reviewed Only</SelectItem>
-                <SelectItem value="resolved">Resolved Only</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <label className="app-label-text">Date</label>
+              <Select value={filterDate} onValueChange={setFilterDate}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">Past Week</SelectItem>
+                  <SelectItem value="month">Past Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="app-label-text">Location</label>
+              <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Locations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  {locationOptions.map((location) => (
+                    <SelectItem key={location} value={location}>
+                      {location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="app-label-text">Status</label>
+              <Select value={filterDetectionStatus} onValueChange={setFilterDetectionStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="violation">Violation</SelectItem>
+                  <SelectItem value="compliant">No Violation</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="app-label-text">Review Status</label>
+              <Select value={filterReviewStatus} onValueChange={setFilterReviewStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Reviews" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Reviews</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="reviewed">Reviewed</SelectItem>
+                  <SelectItem value="resolved">Resolved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-4">
+            <h3 className="app-section-title">Recent Violations</h3>
+            <p className="app-hint-text mt-1">Filtered violation records</p>
+          </div>
           {filteredViolations.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No violations found
@@ -217,7 +365,7 @@ const Violations = () => {
               <Table>
                   <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>ID Number</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Time</TableHead>
                     <TableHead className="whitespace-nowrap">Plate Number</TableHead>
@@ -226,17 +374,18 @@ const Violations = () => {
                     {showConfidence && <TableHead>Confidence</TableHead>}
                     <TableHead className="whitespace-nowrap">Review Status</TableHead>
                     <TableHead className="whitespace-nowrap">Reviewed By</TableHead>
+                    <TableHead className="whitespace-nowrap">Evidence</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredViolations.map((violation) => (
-                    <TableRow key={violation.id}>
-                      <TableCell className="font-medium">#{violation.id}</TableCell>
+                    <TableRow key={violation.id_number || violation.id}>
+                      <TableCell className="font-medium">#{violation.id_number || violation.id}</TableCell>
                       <TableCell>{formatDate(violation.detected_at)}</TableCell>
                       <TableCell>{formatTime(violation.detected_at)}</TableCell>
                       <TableCell>
-                        <span className="font-mono font-semibold text-primary">
+                        <span className="font-mono font-semibold text-foreground">
                           {violation.plate_number || 'N/A'}
                         </span>
                       </TableCell>
@@ -255,7 +404,7 @@ const Violations = () => {
                       </TableCell>
                       {showConfidence && (
                         <TableCell>
-                          <span className="text-accent font-medium">
+                          <span className="text-foreground font-medium">
                             {(violation.confidence_score * 100).toFixed(1)}%
                           </span>
                         </TableCell>
@@ -277,12 +426,28 @@ const Violations = () => {
                       </TableCell>
                       <TableCell>
                         {violation.reviewed_by_name ? (
-                          <div className="text-xs whitespace-nowrap">
+                          <div className="whitespace-nowrap text-[13px]">
                             <p className="font-medium text-foreground">{violation.reviewed_by_name}</p>
-                            <p className="text-muted-foreground">{violation.reviewed_by_role}</p>
+                            <p className="app-hint-text">{violation.reviewed_by_role}</p>
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          <span className="app-hint-text">N/A</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {violation.evidence_image ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 text-[12px]"
+                            onClick={() => setSelectedEvidence(violation)}
+                          >
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Evidence
+                          </Button>
+                        ) : (
+                          <span className="app-hint-text">No image</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -321,7 +486,7 @@ const Violations = () => {
 
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-border pt-4 mt-4">
-              <div className="text-sm text-muted-foreground">
+              <div className="app-hint-text">
                 Showing page {currentPage} of {totalPages} ({totalItems} total)
               </div>
               <div className="flex gap-2">
@@ -346,6 +511,53 @@ const Violations = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(selectedEvidence)} onOpenChange={(open) => !open && setSelectedEvidence(null)}>
+        <DialogContent className="max-w-4xl border-border bg-card">
+          <DialogHeader>
+            <DialogTitle className="app-section-title">Violation Evidence</DialogTitle>
+          </DialogHeader>
+
+          {selectedEvidence && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="rounded-md border border-border bg-card p-3">
+                  <p className="app-label-text">ID Number</p>
+                  <p className="app-body-text font-medium text-foreground">
+                    #{selectedEvidence.id_number || selectedEvidence.id}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-card p-3">
+                  <p className="app-label-text">Camera</p>
+                  <p className="app-body-text font-medium text-foreground">
+                    {selectedEvidence.camera_name || 'Unknown'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-card p-3">
+                  <p className="app-label-text">Classification</p>
+                  <p className="app-body-text font-medium text-foreground">
+                    {getStatusBadge(selectedEvidence.classification)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-card p-3">
+                  <p className="app-label-text">Detected At</p>
+                  <p className="app-body-text font-medium text-foreground">
+                    {formatDate(selectedEvidence.detected_at)} {formatTime(selectedEvidence.detected_at)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-border bg-[#F5F6FA]">
+                <img
+                  src={getEvidenceUrl(selectedEvidence.evidence_image)}
+                  alt={`Evidence for violation ${selectedEvidence.id_number || selectedEvidence.id}`}
+                  className="max-h-[70vh] w-full object-contain"
+                />
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
