@@ -281,3 +281,19 @@ class AdminNotificationTests(APITestCase):
 
         notification.refresh_from_db()
         self.assertTrue(notification.is_read)
+
+    def test_admin_can_delete_notification(self):
+        notification = AdminNotification.objects.create(
+            actor=self.operator_user,
+            violation=self.violation,
+            title='Operator updated a violation action',
+            message='Operator changed a violation.',
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        delete_response = self.client.delete(
+            f'/api/users/admin-notifications/{notification.id}/delete/'
+        )
+
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(AdminNotification.objects.filter(id=notification.id).exists())
