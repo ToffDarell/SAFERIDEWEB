@@ -4,10 +4,12 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { FileText, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { violationsService } from '@/services/violations';
 import apiClient from '@/services/api';
+import { camerasService } from '@/services/cameras';
 
 const Reports = () => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -17,14 +19,54 @@ const Reports = () => {
   const [violations, setViolations] = useState<any[]>([]);
   const [weeklyData, setWeeklyData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [locationOptions, setLocationOptions] = useState<string[]>([]);
+
+  // Filters
+  const [filterYear, setFilterYear] = useState('all');
+  const [filterDate, setFilterDate] = useState('all');
+  const [filterLocation, setFilterLocation] = useState('all');
+  const [filterDetectionStatus, setFilterDetectionStatus] = useState('all');
+  const [filterReviewStatus, setFilterReviewStatus] = useState('all');
 
   useEffect(() => {
     loadData();
+  }, [filterYear, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
+
+  useEffect(() => {
+    const loadLocations = async () => {
+      try {
+        const cameraResponse = await camerasService.getCameras();
+        const cameraList = Array.isArray(cameraResponse)
+          ? cameraResponse
+          : cameraResponse.results || [];
+
+        const nextLocations = Array.from(
+          new Set(
+            cameraList
+              .map((camera: any) => camera.location?.trim())
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        setLocationOptions(nextLocations);
+      } catch (error) {
+        console.error('Failed to load report locations:', error);
+      }
+    };
+
+    loadLocations();
   }, []);
 
   const loadData = async () => {
     try {
-      const data = await violationsService.getViolations();
+      const params: any = {};
+      if (filterYear !== 'all') params.year = filterYear;
+      if (filterDate !== 'all') params.date = filterDate;
+      if (filterLocation !== 'all') params.location = filterLocation;
+      if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
+      if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
+
+      const data = await violationsService.getViolations(params);
       const violationsData = data.results || [];
       
       setViolations(violationsData);
@@ -76,8 +118,16 @@ const Reports = () => {
         description: `Preparing your ${format.toUpperCase()} file`,
       });
 
+      const params = new URLSearchParams();
+      params.append('export_format', format);
+      if (filterYear !== 'all') params.append('year', filterYear);
+      if (filterDate !== 'all') params.append('date', filterDate);
+      if (filterLocation !== 'all') params.append('location', filterLocation);
+      if (filterDetectionStatus !== 'all') params.append('detection_status', filterDetectionStatus);
+      if (filterReviewStatus !== 'all') params.append('review_status', filterReviewStatus);
+
       const response = await apiClient.get(
-        `/violations/export/?export_format=${format}`,
+        `/violations/export/?${params.toString()}`,
         { responseType: 'blob' }
       );
 
@@ -117,13 +167,13 @@ const Reports = () => {
 
   const summaryData = [
     { title: 'Total Violations', value: totalViolations.toString(), icon: AlertCircle, trend: '+12%', color: 'text-destructive' },
-    { title: 'Reviewed', value: reviewedViolations.toString(), icon: CheckCircle, trend: '+8%', color: 'text-accent' },
+    { title: 'Reviewed', value: reviewedViolations.toString(), icon: CheckCircle, trend: '+8%', color: 'text-primary' },
     { title: 'Resolved', value: resolvedViolations.toString(), icon: CheckCircle, trend: '+15%', color: 'text-green-500' },
     { title: 'Pending', value: pendingViolations.toString(), icon: TrendingUp, trend: '-5%', color: 'text-orange-500' },
   ];
 
   const recentViolations = violations.slice(0, 3).map(v => ({
-    id: v.id,
+    id: v.id_number || v.id,
     plate: v.plate_number || 'N/A',
     date: new Date(v.detected_at).toLocaleDateString(),
     location: v.camera_name || 'Unknown',
@@ -137,7 +187,7 @@ const Reports = () => {
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading reports...</p>
+          <p className="app-hint-text">Loading reports...</p>
         </div>
       </div>
     );
@@ -147,8 +197,8 @@ const Reports = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-foreground">Violation Reports</h2>
-          <p className="text-muted-foreground">Comprehensive violation analytics</p>
+          <h2 className="app-page-heading">Violation Reports</h2>
+          <p className="app-body-text text-muted-foreground">Comprehensive violation analytics</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -167,6 +217,101 @@ const Reports = () => {
 
 
 
+      <Card className="bg-card border-border mb-6">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="app-section-title">Filter By</CardTitle>
+              <p className="app-hint-text mt-1">Year ID, date, location, status, and review status</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 px-3 text-[12px]"
+              onClick={() => {
+                setFilterYear('all');
+                setFilterDate('all');
+                setFilterLocation('all');
+                setFilterDetectionStatus('all');
+                setFilterReviewStatus('all');
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="space-y-2">
+              <label className="app-label-text">Year ID</label>
+              <Select value={filterYear} onValueChange={setFilterYear}>
+                <SelectTrigger><SelectValue placeholder="All Years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  <SelectItem value="2023">2023</SelectItem>
+                  <SelectItem value="2024">2024</SelectItem>
+                  <SelectItem value="2025">2025</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="app-label-text">Date</label>
+              <Select value={filterDate} onValueChange={setFilterDate}>
+                <SelectTrigger><SelectValue placeholder="All Time" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">Past Week</SelectItem>
+                  <SelectItem value="month">Past Month</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="app-label-text">Location</label>
+              <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <SelectTrigger><SelectValue placeholder="All Locations" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  {locationOptions.map((location) => (
+                    <SelectItem key={location} value={location}>
+                      {location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="app-label-text">Status</label>
+              <Select value={filterDetectionStatus} onValueChange={setFilterDetectionStatus}>
+                <SelectTrigger><SelectValue placeholder="All Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="violation">Violation</SelectItem>
+                  <SelectItem value="compliant">No Violation</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="app-label-text">Review Status</label>
+              <Select value={filterReviewStatus} onValueChange={setFilterReviewStatus}>
+                <SelectTrigger><SelectValue placeholder="All Reviews" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="reviewed">Reviewed</SelectItem>
+                  <SelectItem value="resolved">Resolved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {summaryData.map((item) => {
           const Icon = item.icon;
@@ -175,11 +320,11 @@ const Reports = () => {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">{item.title}</p>
-                    <h3 className="text-3xl font-bold text-foreground mt-2">{item.value}</h3>
-                    <p className={`text-sm mt-2 ${item.color}`}>{item.trend} from last week</p>
+                    <p className="app-label-text">{item.title}</p>
+                    <h3 className="mt-2 text-[18px] font-medium text-foreground">{item.value}</h3>
+                    <p className="app-hint-text mt-2">{item.trend} from last week</p>
                   </div>
-                  <Icon className={`w-12 h-12 ${item.color} opacity-20`} />
+                  <Icon className={`h-10 w-10 ${item.color} opacity-25`} />
                 </div>
               </CardContent>
             </Card>
@@ -189,7 +334,7 @@ const Reports = () => {
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground">Weekly Violations Trend (Last 7 Days)</CardTitle>
+          <CardTitle className="app-section-title">Weekly Violations Trend (Last 7 Days)</CardTitle>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
@@ -230,7 +375,7 @@ const Reports = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
+                  <TableHead>ID Number</TableHead>
                   <TableHead>Plate Number</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Location</TableHead>
@@ -239,10 +384,10 @@ const Reports = () => {
               </TableHeader>
               <TableBody>
                 {recentViolations.map((violation) => (
-                  <TableRow key={violation.id}>
-                    <TableCell className="font-medium">#{violation.id}</TableCell>
+                  <TableRow key={violation.id_number || violation.id}>
+                    <TableCell className="font-medium">#{violation.id_number || violation.id}</TableCell>
                     <TableCell>
-                      <span className="font-mono font-semibold text-primary">
+                      <span className="font-mono font-semibold text-foreground">
                         {violation.plate}
                       </span>
                     </TableCell>
