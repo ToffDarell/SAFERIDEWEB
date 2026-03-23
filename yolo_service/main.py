@@ -152,6 +152,7 @@ def main():
             )
 
             # First pass: OCR plates
+            frame_plate = ""
             for box in boxes_filtered:
                 cls_id     = int(box.cls[0])
                 conf_box   = float(box.conf[0])
@@ -160,7 +161,9 @@ def main():
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
                     plate_text = read_plate_text(annotated_frame, x1, y1, x2, y2, reader, ocr_conf=ocr_conf)
                     if plate_text:
-                        latest_plate = plate_text
+                        frame_plate = plate_text
+                        break
+            latest_plate = frame_plate
 
             # Second pass: draw + send
             for box in boxes_filtered:
