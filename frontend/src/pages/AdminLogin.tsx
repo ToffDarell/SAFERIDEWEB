@@ -213,13 +213,13 @@ const AdminLogin = () => {
           <div className="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-2xl flex items-center justify-center mb-4 shadow-lg">
             <Camera className="w-10 h-10 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">SafeRide AI</h1>
-          <p className="text-muted-foreground mt-2">Helmet Violation Detection System</p>
+          <h1 className="app-page-heading">SafeRide AI</h1>
+          <p className="app-body-text mt-2 text-muted-foreground">Helmet Violation Detection System</p>
         </div>
 
         <Card className="border-border shadow-xl">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
+            <CardTitle className="app-section-title text-center">Welcome Back</CardTitle>
             <CardDescription className="text-center">
               Sign in to access the SafeRide dashboard
             </CardDescription>
@@ -263,7 +263,7 @@ const AdminLogin = () => {
                 <ReCAPTCHA
                   ref={recaptchaRef}
                   sitekey={RECAPTCHA_SITE_KEY}
-                  theme="dark"
+                  theme="light"
                 />
               </div>
 
@@ -277,8 +277,8 @@ const AdminLogin = () => {
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                <div className="relative flex justify-center text-[11px] uppercase tracking-[0.08em]">
+                  <span className="bg-card px-2 text-hint">Or continue with</span>
                 </div>
               </div>
 
@@ -296,7 +296,7 @@ const AdminLogin = () => {
             </div>
 
             <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
+              <p className="app-body-text text-muted-foreground">
                 Don't have an account?{' '}
                 <a href="/register" className="text-primary hover:underline font-medium">
                   Register here
@@ -306,7 +306,7 @@ const AdminLogin = () => {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
+        <p className="app-hint-text mt-6 text-center">
           By signing in, you agree to our Terms of Service and Privacy Policy
         </p>
       </div>
