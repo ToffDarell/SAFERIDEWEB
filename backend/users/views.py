@@ -211,6 +211,18 @@ class UserViewSet(viewsets.ModelViewSet):
         updated = AdminNotification.objects.filter(is_read=False).update(is_read=True)
         return Response({"detail": f"{updated} notification(s) marked as read."})
 
+    @action(
+        detail=False,
+        methods=["delete"],
+        url_path=r"admin-notifications/(?P<notification_id>\d+)/delete",
+        permission_classes=[IsAdmin],
+    )
+    def delete_admin_notification(self, request, notification_id=None):
+        deleted, _ = AdminNotification.objects.filter(id=notification_id).delete()
+        if not deleted:
+            return Response({"error": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=False, methods=["post"], url_path="change-password")
     def change_password(self, request):
         user = request.user
