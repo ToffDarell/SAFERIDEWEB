@@ -185,13 +185,13 @@ const Registration = () => {
           <div className="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-2xl flex items-center justify-center mb-4 shadow-lg">
             <Camera className="w-10 h-10 text-primary-foreground" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">Create Account</h1>
-          <p className="text-muted-foreground mt-2">Register for SafeRide System Access</p>
+          <h1 className="app-page-heading">Create Account</h1>
+          <p className="app-body-text mt-2 text-muted-foreground">Register for SafeRide System Access</p>
         </div>
 
         <Card className="border-border shadow-xl">
           <CardHeader>
-            <CardTitle className="text-2xl">Registration Form</CardTitle>
+            <CardTitle className="app-section-title">Registration Form</CardTitle>
             <CardDescription>
               Fill in your details to request access to the SafeRide dashboard
             </CardDescription>
@@ -343,8 +343,8 @@ const Registration = () => {
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t" />
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or register with</span>
+                <div className="relative flex justify-center text-[11px] uppercase tracking-[0.08em]">
+                  <span className="bg-card px-2 text-hint">Or register with</span>
                 </div>
               </div>
 
@@ -361,7 +361,7 @@ const Registration = () => {
             </div>
 
             <div className="mt-6 text-center">
-              <p className="text-sm text-muted-foreground">
+              <p className="app-body-text text-muted-foreground">
                 Already have an account?{' '}
                 <a href="/" className="text-primary hover:underline font-medium">
                   Sign in here
@@ -371,7 +371,7 @@ const Registration = () => {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
+        <p className="app-hint-text mt-6 text-center">
           Your account will be reviewed by an administrator before access is granted
         </p>
       </div>
