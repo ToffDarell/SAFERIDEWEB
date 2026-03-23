@@ -8,47 +8,50 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 220 25% 8%;
-    --foreground: 200 20% 98%;
+    --background: 225 23% 97%;
+    --foreground: 240 27% 14%;
 
-    --card: 220 20% 12%;
-    --card-foreground: 200 20% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 27% 14%;
 
-    --popover: 220 20% 12%;
-    --popover-foreground: 200 20% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 27% 14%;
 
-    --primary: 190 100% 50%;
-    --primary-foreground: 220 25% 8%;
-    --primary-glow: 190 100% 65%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 91% 70%;
 
-    --secondary: 220 20% 18%;
-    --secondary-foreground: 200 20% 98%;
+    --secondary: 220 20% 96%;
+    --secondary-foreground: 240 27% 14%;
 
-    --muted: 220 15% 20%;
-    --muted-foreground: 200 10% 60%;
+    --muted: 220 20% 96%;
+    --muted-foreground: 220 9% 46%;
 
-    --accent: 280 80% 60%;
-    --accent-foreground: 200 20% 98%;
+    --accent: 220 20% 96%;
+    --accent-foreground: 240 27% 14%;
 
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 200 20% 98%;
+    --destructive: 0 78% 58%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 220 15% 25%;
-    --input: 220 15% 20%;
-    --ring: 190 100% 50%;
+    --border: 225 19% 91%;
+    --input: 225 19% 91%;
+    --ring: 217 91% 60%;
 
     --radius: 0.75rem;
+    --hint-foreground: 220 9% 67%;
+    --feed-foreground: 210 40% 96%;
+    --feed-muted-foreground: 215 20% 75%;
 
-    --tech-grid: 220 15% 15%;
-    --tech-highlight: 190 100% 50%;
+    --tech-grid: 225 19% 91%;
+    --tech-highlight: 217 91% 60%;
     
     /* Gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(190 100% 50%), hsl(280 80% 60%));
-    --gradient-subtle: linear-gradient(180deg, hsl(220 25% 10%), hsl(220 25% 8%));
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(195 85% 55%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(225 23% 97%));
     
     /* Shadows */
-    --shadow-glow: 0 0 40px hsl(190 100% 50% / 0.3);
-    --shadow-card: 0 8px 32px hsl(220 25% 5% / 0.5);
+    --shadow-glow: 0 0 18px hsl(217 91% 60% / 0.14);
+    --shadow-card: 0 12px 32px hsl(240 27% 14% / 0.06);
     
     /* Animations */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -60,7 +63,78 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
+  html {
+    @apply bg-background;
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  :where(.font-bold, .font-semibold) {
+    font-weight: 500 !important;
+  }
+
+  ::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .text-hint {
+    color: hsl(var(--hint-foreground));
+  }
+
+  .app-page-heading {
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: hsl(var(--foreground));
+  }
+
+  .app-section-title {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: hsl(var(--foreground));
+  }
+
+  .app-body-text {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
+
+  .app-label-text {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .app-badge-text {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .app-hint-text {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: hsl(var(--hint-foreground));
+  }
+
+  .feed-overlay-text {
+    color: hsl(var(--feed-foreground));
+  }
+
+  .feed-overlay-muted {
+    color: hsl(var(--feed-muted-foreground));
   }
 }
