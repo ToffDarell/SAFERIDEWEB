@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -152,3 +153,37 @@ class ViolationServiceAuthTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Violation.objects.count(), 1)
         self.assertEqual(Violation.objects.get().classification, "no_helmet")
+
+    def test_api_key_can_create_violation_with_multipart_json_fields(self):
+        evidence_image = SimpleUploadedFile(
+            "violation.gif",
+            (
+                b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+                b"\xf9\x04\x01\n\x00\x01\x00,\x00\x00\x00\x00\x01\x00\x01\x00"
+                b"\x00\x02\x02L\x01\x00;"
+            ),
+            content_type="image/gif",
+        )
+        payload = {
+            "camera": str(self.camera.id),
+            "detected_at": timezone.now().isoformat(),
+            "detection_status": "violation",
+            "confidence_score": "0.77",
+            "classification": "nutshell",
+            "plate_number": "",
+            "bounding_box": "{'x1': 11, 'y1': 22, 'x2': 33, 'y2': 44}",
+            "evidence_image": evidence_image,
+        }
+
+        response = self.client.post(
+            "/api/violations/",
+            payload,
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Api-Key {self.api_key}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Violation.objects.count(), 1)
+        violation = Violation.objects.get()
+        self.assertEqual(violation.classification, "nutshell")
+        self.assertEqual(violation.bounding_box, {"x1": 11, "y1": 22, "x2": 33, "y2": 44})
