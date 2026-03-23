@@ -2,7 +2,7 @@ import csv
 import io
 from datetime import datetime, timedelta
 
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters
@@ -36,10 +36,12 @@ from users.permissions import IsAdmin, IsYoloService
 class ViolationFilter(django_filters.FilterSet):
     detected_at__gte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='gte')
     detected_at__lte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='lte')
+    
+    year = django_filters.NumberFilter(field_name='detected_at', lookup_expr='year')
 
     class Meta:
         model = Violation
-        fields = ['detection_status', 'classification', 'camera', 'review_status']
+        fields = ['detection_status', 'classification', 'camera', 'review_status', 'year']
 
 
 class ViolationViewSet(viewsets.ModelViewSet):
@@ -49,6 +51,42 @@ class ViolationViewSet(viewsets.ModelViewSet):
     filterset_class = ViolationFilter
     ordering_fields = ['detected_at', 'confidence_score']
     ordering = ['-detected_at']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        date_filter = self.request.query_params.get('date')
+        location = self.request.query_params.get('location')
+        search = self.request.query_params.get('search')
+        status = self.request.query_params.get('status')
+
+        if status and not self.request.query_params.get('detection_status'):
+            qs = qs.filter(detection_status=status)
+
+        if date_filter in ['today', 'week', 'month']:
+            from django.utils import timezone
+            from datetime import timedelta
+            now = timezone.localdate()
+            if date_filter == 'today':
+                qs = qs.filter(detected_at__date=now)
+            elif date_filter == 'week':
+                qs = qs.filter(detected_at__date__gte=now - timedelta(days=6))
+            elif date_filter == 'month':
+                qs = qs.filter(detected_at__date__gte=now.replace(day=1))
+
+        if location:
+            qs = qs.filter(
+                Q(camera__name__icontains=location) |
+                Q(camera__location__icontains=location)
+            )
+
+        if search:
+            qs = qs.filter(
+                Q(plate_number__icontains=search) |
+                Q(camera__name__icontains=search) |
+                Q(camera__location__icontains=search)
+            )
+
+        return qs
 
     def get_permissions(self):
         if self.action == 'create':
@@ -83,6 +121,35 @@ class ViolationSummaryView(APIView):
         today = timezone.localdate()
         week_start = today - timedelta(days=6)
         queryset = Violation.objects.select_related("camera")
+
+        # Apply filters
+        date = request.query_params.get('date')
+        location = request.query_params.get('location')
+        status = request.query_params.get('status')
+        review_status = request.query_params.get('review_status')
+        year = request.query_params.get('year')
+
+        if date:
+            if date == 'today':
+                queryset = queryset.filter(detected_at__date=today)
+            elif date == 'week':
+                queryset = queryset.filter(detected_at__date__gte=week_start)
+            elif date == 'month':
+                month_start = today.replace(day=1)
+                queryset = queryset.filter(detected_at__date__gte=month_start)
+            else:
+                queryset = queryset.filter(detected_at__date=date)
+        if location:
+            if location.isdigit():
+                queryset = queryset.filter(camera_id=location)
+            else:
+                queryset = queryset.filter(camera__name__icontains=location)
+        if status:
+            queryset = queryset.filter(detection_status=status)
+        if review_status:
+            queryset = queryset.filter(review_status=review_status)
+        if year:
+            queryset = queryset.filter(detected_at__year=year)
 
         class_counts = {
             row["classification"]: row["count"]
@@ -123,11 +190,27 @@ class ViolationWeeklyChartView(APIView):
         today = timezone.localdate()
         start_date = today - timedelta(days=6)
 
+        queryset = Violation.objects.filter(detected_at__date__range=(start_date, today))
+
+        # Apply filters
+        location = request.query_params.get('location')
+        status = request.query_params.get('status')
+        review_status = request.query_params.get('review_status')
+
+        if location:
+            if location.isdigit():
+                queryset = queryset.filter(camera_id=location)
+            else:
+                queryset = queryset.filter(camera__name__icontains=location)
+        if status:
+            queryset = queryset.filter(detection_status=status)
+        if review_status:
+            queryset = queryset.filter(review_status=review_status)
+
         counts_by_day = {
             row["detected_at__date"]: row["count"]
             for row in (
-                Violation.objects
-                .filter(detected_at__date__range=(start_date, today))
+                queryset
                 .values("detected_at__date")
                 .annotate(count=Count("id"))
             )
@@ -150,8 +233,39 @@ class ViolationExportView(APIView):
 
     def _get_qs(self, request):
         qs = Violation.objects.all().order_by('-detected_at')
+        
+        # Apply filters
+        date = request.query_params.get('date')
         date_from = request.query_params.get('date_from')
         date_to = request.query_params.get('date_to')
+        year = request.query_params.get('year')
+        status = request.query_params.get('detection_status') or request.query_params.get('status')
+        review_status = request.query_params.get('review_status')
+        camera = request.query_params.get('camera') or request.query_params.get('location')
+        
+        if date:
+            from django.utils import timezone
+            from datetime import timedelta
+            now = timezone.localdate()
+            if date == 'today':
+                qs = qs.filter(detected_at__date=now)
+            elif date == 'week':
+                qs = qs.filter(detected_at__date__gte=now - timedelta(days=6))
+            elif date == 'month':
+                qs = qs.filter(detected_at__date__gte=now.replace(day=1))
+            else:
+                qs = qs.filter(detected_at__date=date)
+        if year:
+            qs = qs.filter(detected_at__year=year)
+        if status:
+            qs = qs.filter(detection_status=status)
+        if review_status:
+            qs = qs.filter(review_status=review_status)
+        if camera:
+            if camera.isdigit():
+                qs = qs.filter(camera_id=camera)
+            else:
+                qs = qs.filter(camera__name__icontains=camera)
 
         if date_from:
             try:
