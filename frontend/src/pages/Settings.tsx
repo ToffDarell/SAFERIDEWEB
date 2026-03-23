@@ -340,8 +340,8 @@ const Settings = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-foreground">Settings</h2>
-          <p className="text-muted-foreground">
+          <h2 className="app-page-heading">Settings</h2>
+          <p className="app-body-text text-muted-foreground">
             {isAdmin ? 'Manage system configuration and preferences' : 'Manage your personal preferences'}
           </p>
         </div>
@@ -487,7 +487,7 @@ const Settings = () => {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="email-notif">Email Notifications</Label>
-                    <p className="text-sm text-muted-foreground">Enable email alerts for violations</p>
+                    <p className="app-hint-text">Enable email alerts for violations</p>
                   </div>
                   <Switch
                     id="email-notif"
@@ -507,13 +507,13 @@ const Settings = () => {
                     value={notificationSettings.alert_email}
                     onChange={(e) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, alert_email: e.target.value }))}
                   />
-                  <p className="text-sm text-muted-foreground">Email address that receives system alerts</p>
+                  <p className="app-hint-text">Email address that receives system alerts</p>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="escalation">Critical Alert Escalation</Label>
-                    <p className="text-sm text-muted-foreground">Send critical alerts to all admins</p>
+                    <p className="app-hint-text">Send critical alerts to all admins</p>
                   </div>
                   <Switch
                     id="escalation"
@@ -543,14 +543,14 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="items-per-page">Items Per Page</Label>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="app-hint-text">
                     Number of records displayed per page in violation tables.
                   </p>
                   <select
                     id="items-per-page"
                     value={preferences.itemsPerPage}
                     onChange={(e) => setPreferences((s: any) => ({ ...s, itemsPerPage: Number(e.target.value) }))}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground"
                   >
                     <option value={10}>10</option>
                     <option value={25}>25</option>
@@ -561,14 +561,14 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="default-filter">Default Violation Filter</Label>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="app-hint-text">
                     Default filter applied when opening the Violations page.
                   </p>
                   <select
                     id="default-filter"
                     value={preferences.defaultFilter}
                     onChange={(e) => setPreferences((s: any) => ({ ...s, defaultFilter: e.target.value }))}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground"
                   >
                     <option value="all">All Violations</option>
                     <option value="pending">Pending Only</option>
@@ -582,7 +582,7 @@ const Settings = () => {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Show Confidence Scores</Label>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="app-hint-text">
                       Display AI confidence percentage in violation tables.
                     </p>
                   </div>
@@ -617,22 +617,22 @@ const Settings = () => {
             </CardHeader>
             <CardContent className="space-y-6">
               {!isAdmin && (
-                <div className="flex items-center gap-2 rounded-md border border-blue-500/50 bg-blue-500/10 px-3 py-2 text-sm text-blue-600 dark:text-blue-400">
-                  <Eye className="w-4 h-4 shrink-0" />
+                <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[13px] text-foreground">
+                  <Eye className="w-4 h-4 shrink-0 text-primary" />
                   <span>Read-only view. Contact an administrator to modify detection settings.</span>
                 </div>
               )}
 
               <div className="space-y-2">
                 <Label htmlFor="confidence-threshold">
-                    Confidence Threshold — <span className="text-primary font-semibold">
+                    Confidence Threshold - <span className="text-foreground font-medium">
                       {isNaN(detectionSettings.confidence_threshold)
                         ? '60'
                         : (detectionSettings.confidence_threshold * 100).toFixed(0)}%
                     </span>
                   </Label>
-                <p className="text-sm text-muted-foreground">
-                    YOLO inference floor — applies to all classes before per-class thresholds. Keep this ≤ your lowest per-class value below.
+                <p className="app-hint-text">
+                    YOLO inference floor - applies to all classes before per-class thresholds. Keep this {"<="} your lowest per-class value below.
                   </p>
                   <input
                     id="confidence-threshold"
@@ -647,7 +647,7 @@ const Settings = () => {
                     disabled={!isAdmin}
                     className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                  <div className="app-hint-text flex justify-between">
                     <span>30% (Sensitive)</span>
                     <span>95% (Strict)</span>
                   </div>
@@ -661,8 +661,8 @@ const Settings = () => {
                       detectionSettings.conf_license_plate < global && 'License Plate',
                     ].filter(Boolean);
                     return blocked.length > 0 ? (
-                      <div className="flex items-start gap-2 rounded-md border border-yellow-500/50 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-600 dark:text-yellow-400">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-foreground">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
                         <span>
                           <strong>Warning:</strong> Global threshold ({(global * 100).toFixed(0)}%) is higher than the per-class threshold for <strong>{blocked.join(', ')}</strong>. These classes will never be detected. Lower the global threshold or raise the per-class values.
                         </span>
@@ -676,19 +676,19 @@ const Settings = () => {
                 {/* Per-class confidence thresholds */}
                 <div className="space-y-4">
                   <div>
-                    <Label className="text-sm font-semibold">Per-Class Confidence Thresholds</Label>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Fine-tune sensitivity per detection class. Must be ≥ the global threshold above to have effect.
+                    <Label className="app-label-text font-medium">Per-Class Confidence Thresholds</Label>
+                    <p className="app-hint-text mt-1">
+                      Fine-tune sensitivity per detection class. Must be {">="} the global threshold above to have effect.
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="conf-no-helmet">
-                      No Helmet — <span className="text-destructive font-semibold">
+                      No Helmet - <span className="text-foreground font-medium">
                         {(detectionSettings.conf_no_helmet * 100).toFixed(0)}%
                       </span>
                     </Label>
-                    <p className="text-xs text-muted-foreground">Lower = catches more violators. Raise if getting false positives.</p>
+                    <p className="app-hint-text">Lower = catches more violators. Raise if getting false positives.</p>
                     <input
                       id="conf-no-helmet"
                       type="range"
@@ -702,7 +702,7 @@ const Settings = () => {
                       disabled={!isAdmin}
                       className="w-full accent-destructive disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="app-hint-text flex justify-between">
                       <span>30% (Lenient)</span>
                       <span>95% (Strict)</span>
                     </div>
@@ -710,11 +710,11 @@ const Settings = () => {
 
                   <div className="space-y-2">
                     <Label htmlFor="conf-nutshell">
-                      Nutshell (Half-Helmet) — <span className="text-orange-500 font-semibold">
+                      Nutshell (Half-Helmet) - <span className="text-foreground font-medium">
                         {(detectionSettings.conf_nutshell * 100).toFixed(0)}%
                       </span>
                     </Label>
-                    <p className="text-xs text-muted-foreground">Keep higher to avoid misidentifying full helmets as nutshells.</p>
+                    <p className="app-hint-text">Keep higher to avoid misidentifying full helmets as nutshells.</p>
                     <input
                       id="conf-nutshell"
                       type="range"
@@ -728,7 +728,7 @@ const Settings = () => {
                       disabled={!isAdmin}
                       className="w-full accent-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="app-hint-text flex justify-between">
                       <span>30% (Lenient)</span>
                       <span>95% (Strict)</span>
                     </div>
@@ -736,11 +736,11 @@ const Settings = () => {
 
                   <div className="space-y-2">
                     <Label htmlFor="conf-helmet">
-                      Helmet (Compliant) — <span className="text-green-500 font-semibold">
+                      Helmet (Compliant) - <span className="text-foreground font-medium">
                         {(detectionSettings.conf_helmet * 100).toFixed(0)}%
                       </span>
                     </Label>
-                    <p className="text-xs text-muted-foreground">Minimum confidence to mark a rider as compliant.</p>
+                    <p className="app-hint-text">Minimum confidence to mark a rider as compliant.</p>
                     <input
                       id="conf-helmet"
                       type="range"
@@ -754,7 +754,7 @@ const Settings = () => {
                       disabled={!isAdmin}
                       className="w-full accent-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="app-hint-text flex justify-between">
                       <span>30% (Lenient)</span>
                       <span>95% (Strict)</span>
                     </div>
@@ -762,11 +762,11 @@ const Settings = () => {
 
                   <div className="space-y-2">
                     <Label htmlFor="conf-license-plate">
-                      License Plate Detection — <span className="text-cyan-500 font-semibold">
+                      License Plate Detection - <span className="text-foreground font-medium">
                         {(detectionSettings.conf_license_plate * 100).toFixed(0)}%
                       </span>
                     </Label>
-                    <p className="text-xs text-muted-foreground">Minimum YOLO confidence to attempt reading a plate. Lower if plates are being missed.</p>
+                    <p className="app-hint-text">Minimum YOLO confidence to attempt reading a plate. Lower if plates are being missed.</p>
                     <input
                       id="conf-license-plate"
                       type="range"
@@ -780,7 +780,7 @@ const Settings = () => {
                       disabled={!isAdmin}
                       className="w-full accent-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="app-hint-text flex justify-between">
                       <span>30% (Lenient)</span>
                       <span>95% (Strict)</span>
                     </div>
@@ -791,13 +791,13 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="send-cooldown">
-                    Alert Cooldown — <span className="text-primary font-semibold">
+                    Alert Cooldown - <span className="text-foreground font-medium">
                       {isNaN(detectionSettings.send_cooldown_seconds)
                         ? '3.0'
                         : detectionSettings.send_cooldown_seconds}s
                     </span>
                   </Label>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="app-hint-text">
                     Minimum seconds between violation alerts sent to the server. Prevents duplicate detections.
                   </p>
                   <input
@@ -813,7 +813,7 @@ const Settings = () => {
                     disabled={!isAdmin}
                     className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                  <div className="app-hint-text flex justify-between">
                     <span>1s (Fast)</span>
                     <span>30s (Slow)</span>
                   </div>
@@ -823,13 +823,13 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="ocr-confidence">
-                    OCR Confidence — <span className="text-primary font-semibold">
+                    OCR Confidence - <span className="text-foreground font-medium">
                       {isNaN(detectionSettings.ocr_confidence)
                         ? '20'
                         : (detectionSettings.ocr_confidence * 100).toFixed(0)}%
                     </span>
                   </Label>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="app-hint-text">
                     Minimum confidence EasyOCR must have to accept a plate reading. Lower = more plate reads, more errors.
                   </p>
                   <input
@@ -845,7 +845,7 @@ const Settings = () => {
                     disabled={!isAdmin}
                     className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                  <div className="app-hint-text flex justify-between">
                     <span>10% (Permissive)</span>
                     <span>90% (Strict)</span>
                   </div>
@@ -855,7 +855,7 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="data-retention">Data Retention (days)</Label>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="app-hint-text">
                     How many days to keep violation records in the database before auto-deletion.
                   </p>
                   <Input
@@ -891,7 +891,7 @@ const Settings = () => {
             <Card className="bg-card border-border">
               <CardHeader>
                 <div className="flex items-center gap-3">
-                  <Users className="w-5 h-5 text-accent" />
+                  <Users className="w-5 h-5 text-primary" />
                   <div>
                     <CardTitle>User Management</CardTitle>
                     <CardDescription>Manage operator accounts and permissions</CardDescription>
@@ -924,13 +924,13 @@ const Settings = () => {
                 {showManageUsers && (
                   <div className="border rounded-lg p-4 space-y-3 bg-muted/40">
                     <div className="flex items-center justify-between">
-                      <p className="font-semibold text-sm">All Users</p>
+                      <p className="text-[13px] font-medium text-foreground">All Users</p>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={loadUsers}
                         disabled={loadingUsers}
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2"
                       >
                         <RefreshCw className={`w-3 h-3 mr-1 ${loadingUsers ? 'animate-spin' : ''}`} />
                         Refresh
@@ -942,17 +942,17 @@ const Settings = () => {
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                       </div>
                     ) : usersList.length === 0 ? (
-                      <p className="text-sm text-muted-foreground text-center py-4">No users found.</p>
+                      <p className="app-hint-text py-4 text-center">No users found.</p>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full">
                           <thead>
                             <tr className="border-b border-border">
-                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Name</th>
-                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Email</th>
-                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Role</th>
-                              <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Status</th>
-                              <th className="text-left py-2 font-medium text-muted-foreground">Actions</th>
+                              <th className="py-2 pr-3 text-left text-[13px] font-medium text-muted-foreground">Name</th>
+                              <th className="py-2 pr-3 text-left text-[13px] font-medium text-muted-foreground">Email</th>
+                              <th className="py-2 pr-3 text-left text-[13px] font-medium text-muted-foreground">Role</th>
+                              <th className="py-2 pr-3 text-left text-[13px] font-medium text-muted-foreground">Status</th>
+                              <th className="py-2 text-left text-[13px] font-medium text-muted-foreground">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -966,14 +966,11 @@ const Settings = () => {
                                 <tr key={u.id} className="border-b border-border/50 last:border-0">
                                   <td className="py-2 pr-3">
                                     <p className="font-medium">{fullName}</p>
-                                    <p className="text-xs text-muted-foreground">@{u.username}</p>
+                                    <p className="app-hint-text">@{u.username}</p>
                                   </td>
-                                  <td className="py-2 pr-3 text-muted-foreground">{u.email || '—'}</td>
+                                  <td className="py-2 pr-3 text-foreground">{u.email || 'N/A'}</td>
                                   <td className="py-2 pr-3">
-                                    <Badge
-                                      variant={isAdminUser ? 'default' : 'secondary'}
-                                      className="text-xs"
-                                    >
+                                    <Badge variant={isAdminUser ? 'default' : 'secondary'}>
                                       {isAdminUser ? 'Admin' : 'TMC Operator'}
                                     </Badge>
                                   </td>
@@ -984,14 +981,13 @@ const Settings = () => {
                                           : accStatus === 'pending' ? 'secondary'
                                             : 'destructive'
                                       }
-                                      className="text-xs"
                                     >
                                       {accStatus.charAt(0).toUpperCase() + accStatus.slice(1)}
                                     </Badge>
                                   </td>
                                   <td className="py-2">
                                     {isCurrentUser || isAdminUser ? (
-                                      <span className="text-xs text-muted-foreground italic">
+                                      <span className="app-hint-text italic">
                                         {isCurrentUser ? 'You' : 'Protected'}
                                       </span>
                                     ) : (
@@ -1025,7 +1021,7 @@ const Settings = () => {
                   <Shield className="w-4 h-4 mr-2" />
                   Pending Registrations
                   {pendingList.length > 0 && !showPending && (
-                    <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                    <Badge variant="destructive" className="ml-2 h-5 px-1.5">
                       {pendingList.length}
                     </Badge>
                   )}
@@ -1038,10 +1034,10 @@ const Settings = () => {
                 {showPending && (
                   <div className="border rounded-lg p-4 space-y-3 bg-muted/40">
                     <div className="flex items-center justify-between">
-                      <p className="font-semibold text-sm">
+                      <p className="text-[13px] font-medium text-foreground">
                         Pending Registrations
                         {pendingList.length > 0 && (
-                          <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                          <Badge variant="destructive" className="ml-2 h-5 px-1.5">
                             {pendingList.length}
                           </Badge>
                         )}
@@ -1051,7 +1047,7 @@ const Settings = () => {
                         size="sm"
                         onClick={loadPending}
                         disabled={loadingPending}
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2"
                       >
                         <RefreshCw className={`w-3 h-3 mr-1 ${loadingPending ? 'animate-spin' : ''}`} />
                         Refresh
@@ -1065,7 +1061,7 @@ const Settings = () => {
                     ) : pendingList.length === 0 ? (
                       <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
                         <Shield className="w-8 h-8 opacity-30" />
-                        <p className="text-sm">No pending registrations. You're all caught up!</p>
+                        <p className="app-body-text">No pending registrations. You're all caught up!</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1083,18 +1079,18 @@ const Settings = () => {
                             >
                               <div className="min-w-0 flex-1">
                                 <p className="font-medium truncate">{fullName}</p>
-                                <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                                <p className="app-hint-text truncate">{u.email}</p>
                                 {org && (
-                                  <p className="text-xs text-muted-foreground mt-0.5">🏢 {org}</p>
+                                  <p className="app-hint-text mt-0.5">Organization: {org}</p>
                                 )}
                                 {joinedDate && (
-                                  <p className="text-xs text-muted-foreground mt-0.5">Registered: {joinedDate}</p>
+                                  <p className="app-hint-text mt-0.5">Registered: {joinedDate}</p>
                                 )}
                               </div>
                               <div className="flex gap-2 shrink-0 pt-0.5">
                                 <Button
                                   size="sm"
-                                  className="h-7 px-3 text-xs bg-green-600 hover:bg-green-700 text-white"
+                                  className="h-7 border border-green-200 bg-green-50 px-3 text-[13px] text-foreground hover:bg-green-100"
                                   disabled={isProcessing}
                                   onClick={() => handleApproveOrReject(u.id, 'approve', fullName)}
                                 >
@@ -1103,7 +1099,7 @@ const Settings = () => {
                                 <Button
                                   size="sm"
                                   variant="destructive"
-                                  className="h-7 px-3 text-xs"
+                                  className="h-7 px-3"
                                   disabled={isProcessing}
                                   onClick={() => handleApproveOrReject(u.id, 'reject', fullName)}
                                 >
@@ -1120,7 +1116,7 @@ const Settings = () => {
 
                 {showAddOperator && (
                   <div className="mt-4 border rounded-lg p-4 space-y-3 bg-muted/40">
-                    <p className="font-semibold text-sm">Add New User</p>
+                    <p className="text-[13px] font-medium text-foreground">Add New User</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label htmlFor="op-name">Full Name</Label>
