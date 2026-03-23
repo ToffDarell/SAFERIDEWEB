@@ -176,13 +176,13 @@ const CameraStatus = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-foreground">Camera Status</h2>
-          <p className="text-muted-foreground">
+          <h2 className="app-page-heading">Camera Status</h2>
+          <p className="app-body-text text-muted-foreground">
             Monitor all connected CCTV cameras and their operational status
           </p>
         </div>
         {isRefreshing && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <RefreshCw className="w-4 h-4 animate-spin" />
             Updating...
           </div>
@@ -195,8 +195,8 @@ const CameraStatus = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Cameras</p>
-                <h3 className="text-3xl font-bold text-foreground mt-2">{totalCameras}</h3>
+                <p className="app-label-text">Total Cameras</p>
+                <h3 className="mt-2 text-[18px] font-medium text-foreground">{totalCameras}</h3>
               </div>
               <Camera className="w-8 h-8 text-primary" />
             </div>
@@ -207,10 +207,10 @@ const CameraStatus = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Online</p>
-                <h3 className="text-3xl font-bold text-primary mt-2">{onlineCameras}</h3>
+                <p className="app-label-text">Online</p>
+                <h3 className="mt-2 text-[18px] font-medium text-foreground">{onlineCameras}</h3>
                 {offlineCameras > 0 && (
-                  <p className="text-xs text-destructive mt-1">{offlineCameras} offline</p>
+                  <p className="app-hint-text mt-1">{offlineCameras} offline</p>
                 )}
               </div>
               <Wifi className="w-8 h-8 text-primary" />
@@ -222,10 +222,10 @@ const CameraStatus = () => {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Avg. Uptime</p>
-                <h3 className="text-3xl font-bold text-accent mt-2">{avgUptime}</h3>
+                <p className="app-label-text">Avg. Uptime</p>
+                <h3 className="mt-2 text-[18px] font-medium text-foreground">{avgUptime}</h3>
               </div>
-              <Activity className="w-8 h-8 text-accent" />
+              <Activity className="w-8 h-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -234,10 +234,10 @@ const CameraStatus = () => {
       {/* Camera Grid */}
       {cameras.length === 0 ? (
         <Card className="bg-card border-border">
-          <CardContent className="p-12 text-center">
-            <Camera className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">No cameras configured yet</p>
-          </CardContent>
+            <CardContent className="p-12 text-center">
+              <Camera className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <p className="app-hint-text">No cameras configured yet</p>
+            </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -258,8 +258,8 @@ const CameraStatus = () => {
                       }`} />
                     </div>
                     <div>
-                      <CardTitle className="text-base text-foreground">{camera.name}</CardTitle>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <CardTitle className="text-[13px] font-medium text-foreground">{camera.name}</CardTitle>
+                      <p className="app-hint-text mt-1">
                         CAM-{String(camera.id).padStart(3, '0')}
                       </p>
                     </div>
@@ -274,39 +274,39 @@ const CameraStatus = () => {
               </CardHeader>
 
               <CardContent className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Location:</span>
-                  <span className="text-foreground font-medium">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">Location:</span>
+                  <span className="font-medium text-foreground">
                     {camera.location || 'Not specified'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Status:</span>
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">Status:</span>
                   {getStatusBadge(camera.status)}
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Last Seen:</span>
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">Last Seen:</span>
                   <span className={`font-medium ${
-                    camera.status === 'active' ? 'text-primary' : 'text-muted-foreground'
+                    camera.status === 'active' ? 'text-foreground' : 'text-muted-foreground'
                   }`}>
                     {formatLastSeen(camera.last_seen_at)}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Uptime:</span>
-                  <span className="text-accent font-medium">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">Uptime:</span>
+                  <span className="font-medium text-foreground">
                     {formatUptime(camera.last_seen_at)}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">FPS:</span>
-                  <span className="text-primary font-medium">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">FPS:</span>
+                  <span className="font-medium text-foreground">
                     {camera.status === 'active' ? '15' : '0'}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Detections Today:</span>
-                  <span className="text-foreground font-bold">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="app-label-text">Detections Today:</span>
+                  <span className="font-medium text-foreground">
                     {violationCounts[camera.id] ?? 0}
                   </span>
                 </div>
@@ -346,7 +346,7 @@ const CameraStatus = () => {
                 <div className="w-full h-full flex items-center justify-center">
                   <div className="text-center">
                     <Camera className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No stream URL configured</p>
+                    <p className="app-hint-text">No stream URL configured</p>
                   </div>
                 </div>
               )}
@@ -354,22 +354,22 @@ const CameraStatus = () => {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Location</p>
-                <p className="text-sm font-medium">{selectedCamera?.location || 'N/A'}</p>
+                <p className="app-label-text">Location</p>
+                <p className="app-body-text">{selectedCamera?.location || 'N/A'}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Status</p>
+                <p className="app-label-text">Status</p>
                 <div>{selectedCamera && getStatusBadge(selectedCamera.status)}</div>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Camera ID</p>
-                <p className="text-sm font-medium">
+                <p className="app-label-text">Camera ID</p>
+                <p className="app-body-text">
                   CAM-{String(selectedCamera?.id).padStart(3, '0')}
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Last Seen</p>
-                <p className="text-sm font-medium text-accent">
+                <p className="app-label-text">Last Seen</p>
+                <p className="app-body-text">
                   {selectedCamera && formatLastSeen(selectedCamera.last_seen_at)}
                 </p>
               </div>
