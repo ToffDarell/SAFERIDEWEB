@@ -2,6 +2,7 @@ import apiClient from './api';
 
 export interface Violation {
   id: number;
+  id_number?: string;
   camera: number;
   camera_name: string;
   detected_at: string;
@@ -67,13 +68,15 @@ export const violationsService = {
     return response.data;
   },
 
-  async getSummary(): Promise<ViolationSummary> {
-    const response = await apiClient.get('/violations/summary/');
+  async getSummary(filters?: Record<string, string>): Promise<ViolationSummary> {
+    const params = new URLSearchParams(filters || {}).toString();
+    const response = await apiClient.get(`/violations/summary/${params ? `?${params}` : ''}`);
     return response.data;
   },
 
-  async getWeeklyChart(): Promise<ViolationWeeklyChartPoint[]> {
-    const response = await apiClient.get('/violations/weekly-chart/');
+  async getWeeklyChart(filters?: Record<string, string>): Promise<ViolationWeeklyChartPoint[]> {
+    const params = new URLSearchParams(filters || {}).toString();
+    const response = await apiClient.get(`/violations/weekly-chart/${params ? `?${params}` : ''}`);
     return response.data;
   },
 
