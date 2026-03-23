@@ -2,29 +2,29 @@ import { Camera, Cpu, Database, Shield, ArrowRight, Hexagon } from 'lucide-react
 
 export const ConceptualFramework = () => {
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-12 bg-white">
-      <h2 className="text-3xl font-bold text-center mb-12 text-gray-900">
+    <div className="mx-auto w-full max-w-7xl bg-background px-4 py-12">
+      <h2 className="app-page-heading mb-12 text-center">
         Conceptual Framework
       </h2>
       
       <div className="flex flex-col md:flex-row items-center justify-between gap-8">
         {/* INPUT */}
         <div className="flex-1 min-w-[250px]">
-          <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-primary/60 transition-all">
+          <div className="rounded-lg border border-border bg-card p-6 shadow-sm transition-all hover:border-primary/30">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
-                <Shield className="w-8 h-8 text-gray-900" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <Shield className="h-8 w-8 text-foreground" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900">INPUT</h3>
+              <h3 className="app-section-title">INPUT</h3>
             </div>
-            <div className="space-y-3 text-gray-700">
-              <p className="text-sm leading-relaxed">
+            <div className="space-y-3">
+              <p className="app-body-text leading-relaxed">
                 Problems with helmet law enforcement
               </p>
-              <p className="text-sm leading-relaxed">
+              <p className="app-body-text leading-relaxed">
                 Need for automation and real-time monitoring
               </p>
-              <p className="text-sm leading-relaxed">
+              <p className="app-body-text leading-relaxed">
                 Manual violation recording inefficiencies
               </p>
             </div>
@@ -38,29 +38,29 @@ export const ConceptualFramework = () => {
 
         {/* PROCESS */}
         <div className="flex-1 min-w-[250px]">
-          <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-accent/60 transition-all">
+          <div className="rounded-lg border border-border bg-card p-6 shadow-sm transition-all hover:border-primary/30">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
-                <Cpu className="w-8 h-8 text-gray-900" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <Cpu className="h-8 w-8 text-foreground" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900">PROCESS</h3>
+              <h3 className="app-section-title">PROCESS</h3>
             </div>
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <Camera className="w-7 h-7 text-gray-900" />
-                <span className="text-sm text-gray-700">CCTV Camera Capture</span>
+                <Camera className="h-7 w-7 text-foreground" />
+                <span className="app-body-text">CCTV Camera Capture</span>
               </div>
               <div className="flex items-center gap-3">
-                <Hexagon className="w-7 h-7 text-gray-900" />
-                <span className="text-sm text-gray-700">Raspberry Pi Processing</span>
+                <Hexagon className="h-7 w-7 text-foreground" />
+                <span className="app-body-text">Raspberry Pi Processing</span>
               </div>
               <div className="flex items-center gap-3">
-                <Cpu className="w-7 h-7 text-gray-900" />
-                <span className="text-sm text-gray-700">YOLOv11 Detection</span>
+                <Cpu className="h-7 w-7 text-foreground" />
+                <span className="app-body-text">YOLOv11 Detection</span>
               </div>
               <div className="flex items-center gap-3">
-                <Database className="w-7 h-7 text-gray-900" />
-                <span className="text-sm text-gray-700">OCR Plate Recognition</span>
+                <Database className="h-7 w-7 text-foreground" />
+                <span className="app-body-text">OCR Plate Recognition</span>
               </div>
             </div>
           </div>
@@ -73,24 +73,24 @@ export const ConceptualFramework = () => {
 
         {/* OUTPUT */}
         <div className="flex-1 min-w-[250px]">
-          <div className="bg-white border-2 border-gray-300 rounded-lg p-6 shadow-md hover:border-primary-glow/60 transition-all">
+          <div className="rounded-lg border border-border bg-card p-6 shadow-sm transition-all hover:border-primary/30">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
-                <Database className="w-8 h-8 text-gray-900" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <Database className="h-8 w-8 text-foreground" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900">OUTPUT</h3>
+              <h3 className="app-section-title">OUTPUT</h3>
             </div>
-            <div className="space-y-3 text-gray-700">
-              <p className="text-sm leading-relaxed">
+            <div className="space-y-3">
+              <p className="app-body-text leading-relaxed">
                 AI-powered detection system
               </p>
-              <p className="text-sm leading-relaxed">
+              <p className="app-body-text leading-relaxed">
                 Automated violation recording
               </p>
-              <p className="text-sm leading-relaxed">
+              <p className="app-body-text leading-relaxed">
                 Database storage with plate recognition
               </p>
-              <p className="text-sm leading-relaxed">
+              <p className="app-body-text leading-relaxed">
                 Real-time enforcement support
               </p>
             </div>
