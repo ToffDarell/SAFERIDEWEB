@@ -1,71 +1,136 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { LayoutGrid, WifiOff } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Camera, Maximize2, Minimize2, RefreshCw, WifiOff } from 'lucide-react';
-import { camerasService, type Camera as CameraType } from '@/services/cameras';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { camerasService, type Camera as BackendCamera } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
+
+interface MonitorCamera {
+  id: string;
+  name: string;
+  location: string;
+  status: 'online' | 'offline';
+  mjpegUrl: string;
+}
+
+const getFeedLabel = (camera: MonitorCamera) => {
+  const name = camera.name.trim() || 'Camera';
+  const location = camera.location.trim();
+  if (!location) return name;
+  if (name.toLowerCase().includes(location.toLowerCase())) return name;
+  if (location.toLowerCase().includes(name.toLowerCase())) return location;
+  return `${name} \u00b7 ${location}`;
+};
+
+const formatTimestamp = (date: Date) =>
+  date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 
 const LiveMonitor = () => {
   const { toast } = useToast();
-  const [cameras, setCameras] = useState<CameraType[]>([]);
-  const [selectedCamera, setSelectedCamera] = useState<CameraType | null>(null);
+  const [backendCameras, setBackendCameras] = useState<BackendCamera[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [streamError, setStreamError] = useState(false);
-  const [streamKey, setStreamKey] = useState(0);
-  const imgRef = useRef<HTMLImageElement>(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [cameraFilter, setCameraFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'focus'>('grid');
+  const [focusedCameraId, setFocusedCameraId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCameras();
-    const interval = setInterval(loadCameras, 10000);
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (selectedCamera) {
-      setStreamError(false);
-      setStreamKey(k => k + 1);
-    }
-  }, [selectedCamera]);
+    const loadCameras = async () => {
+      try {
+        const response = await camerasService.getCameras();
+        const list: BackendCamera[] = Array.isArray(response)
+          ? response
+          : response.results || [];
+        const sorted = [...list].sort((a, b) => a.id - b.id);
+        setBackendCameras(sorted);
+      } catch (error) {
+        console.error('Failed to load cameras:', error);
+        toast({
+          title: 'Camera load failed',
+          description: 'Could not load cameras from the backend.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  const loadCameras = async () => {
-    try {
-      const data = await camerasService.getCameras();
-      const list: CameraType[] = (data.results || data || []).sort((a: CameraType, b: CameraType) => a.id - b.id);
-      setCameras(list);
-      // Auto-select first active camera if none selected
-      setSelectedCamera(prev => {
-        if (prev) {
-          // Refresh selected camera's data
-          const updated = list.find(c => c.id === prev.id);
-          return updated ?? prev;
-        }
-        return list.find(c => c.status === 'active') ?? list[0] ?? null;
-      });
-    } catch {
-      toast({ title: 'Error', description: 'Failed to load cameras.', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
+    loadCameras();
+    const interval = setInterval(loadCameras, 10000);
+    return () => clearInterval(interval);
+  }, [toast]);
+
+  const monitorCameras = useMemo<MonitorCamera[]>(() => {
+    return backendCameras.slice(0, 4).map((camera) => ({
+      id: String(camera.id),
+      name: camera.name?.trim() || '',
+      location: camera.location?.trim() || '',
+      status: camera.status === 'active' ? 'online' : 'offline',
+      mjpegUrl: camera.stream_url || '',
+    }));
+  }, [backendCameras]);
+
+  useEffect(() => {
+    if (monitorCameras.length === 0) return;
+    setFocusedCameraId((current) => {
+      if (current && monitorCameras.some((c) => c.id === current)) return current;
+      return monitorCameras[0].id;
+    });
+  }, [monitorCameras]);
+
+  useEffect(() => {
+    if (cameraFilter !== 'all') setFocusedCameraId(cameraFilter);
+  }, [cameraFilter]);
+
+  const filteredCameras = useMemo(() => {
+    if (cameraFilter === 'all') return monitorCameras;
+    return monitorCameras.filter((c) => c.id === cameraFilter);
+  }, [cameraFilter, monitorCameras]);
+
+  const focusedCamera = useMemo(() => {
+    if (monitorCameras.length === 0) return null;
+    if (cameraFilter !== 'all')
+      return monitorCameras.find((c) => c.id === cameraFilter) ?? monitorCameras[0];
+    return monitorCameras.find((c) => c.id === focusedCameraId) ?? monitorCameras[0];
+  }, [cameraFilter, focusedCameraId, monitorCameras]);
+
+  const openFocusedView = (cameraId?: string) => {
+    const next =
+      cameraId ??
+      (cameraFilter !== 'all' ? cameraFilter : focusedCameraId) ??
+      monitorCameras[0]?.id;
+    if (!next) return;
+    setFocusedCameraId(next);
+    setViewMode('focus');
   };
 
-  const handleRefreshStream = () => {
-    setStreamError(false);
-    setStreamKey(k => k + 1);
-  };
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
-
-  if (isLoading) {
+  if (isLoading && monitorCameras.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[60vh]">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading cameras...</p>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
+          <p className="app-hint-text">Loading live monitor...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!focusedCamera) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="app-page-heading">Live Monitor</h2>
+          <p className="app-body-text text-muted-foreground">No cameras available</p>
         </div>
       </div>
     );
@@ -73,129 +138,279 @@ const LiveMonitor = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold text-foreground">Live Monitor</h2>
-        <p className="text-muted-foreground">Real-time camera feeds with active helmet detection</p>
+        <h2 className="app-page-heading">Live Monitor</h2>
+        <p className="app-body-text text-muted-foreground">
+          Real-time MJPEG feed from YOLO detection service
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Main Stream */}
-        <div className="lg:col-span-4 space-y-4">
-          {/* Camera Selector */}
-          {cameras.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {cameras.map((cam) => (
-                <Button
-                  key={cam.id}
-                  variant={selectedCamera?.id === cam.id ? 'default' : 'outline'}
-                  size="sm"
-                  className="flex items-center gap-2 shrink-0"
-                  onClick={() => setSelectedCamera(cam)}
-                >
-                  <Camera className="w-4 h-4" />
-                  {cam.name}
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      cam.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'
-                    }`}
-                  />
-                </Button>
-              ))}
-            </div>
-          )}
-
-          {/* Stream Viewer */}
-          <Card className="border-border overflow-hidden">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CardTitle className="text-base">
-                  {selectedCamera ? selectedCamera.name : 'No Camera Selected'}
-                </CardTitle>
-                {selectedCamera && (
-                  <Badge
-                    className={selectedCamera.status === 'active'
-                      ? 'bg-primary/20 text-primary border-primary/50 flex items-center gap-1'
-                      : ''}
-                    variant={selectedCamera.status === 'active' ? 'outline' : 'secondary'}
-                  >
-                    {selectedCamera.status === 'active' && (
-                      <span className="w-2 h-2 rounded-full bg-primary animate-pulse inline-block" />
-                    )}
-                    {selectedCamera.status === 'active' ? 'Live' : 'Offline'}
-                  </Badge>
-                )}
+      {/* Filter bar */}
+      <Card className="border-border bg-card shadow-none">
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end">
+              <div className="w-full space-y-2 md:w-[320px]">
+                <label className="app-label-text">Camera</label>
+                <Select value={cameraFilter} onValueChange={setCameraFilter}>
+                  <SelectTrigger className="h-[30px] rounded-md border-[#E4E6ED] bg-card text-[13px]">
+                    <SelectValue placeholder="All cameras" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All cameras</SelectItem>
+                    {monitorCameras.map((camera) => (
+                      <SelectItem key={camera.id} value={camera.id}>
+                        {getFeedLabel(camera)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" onClick={handleRefreshStream} title="Refresh stream">
-                  <RefreshCw className="w-4 h-4" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`h-[30px] rounded-md border-[#E4E6ED] px-3 text-[13px] font-medium ${
+                    viewMode === 'grid'
+                      ? 'bg-[#F5F6FA] text-foreground'
+                      : 'bg-card text-muted-foreground'
+                  }`}
+                  onClick={() => setViewMode('grid')}
+                >
+                  <LayoutGrid className="mr-2 h-4 w-4" />
+                  2×2 Grid
                 </Button>
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsFullscreen(f => !f)}
-                  title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  type="button"
+                  variant="outline"
+                  className={`h-[30px] rounded-md border-[#E4E6ED] px-3 text-[13px] font-medium ${
+                    viewMode === 'focus'
+                      ? 'bg-[#F5F6FA] text-foreground'
+                      : 'bg-card text-muted-foreground'
+                  }`}
+                  onClick={() => openFocusedView()}
                 >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  View Camera
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className={`relative bg-black ${isFullscreen ? 'fixed inset-0 z-50' : 'aspect-video'}`}>
-                {isFullscreen && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsFullscreen(false)}
-                    className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/70 text-white"
-                  >
-                    <Minimize2 className="w-5 h-5" />
-                  </Button>
-                )}
+            </div>
 
-                {!selectedCamera ? (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <div className="text-center space-y-2">
-                      <Camera className="w-12 h-12 mx-auto opacity-30" />
-                      <p className="text-sm">Select a camera to view the live feed</p>
-                    </div>
-                  </div>
-                ) : selectedCamera.status !== 'active' ? (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <div className="text-center space-y-2">
-                      <WifiOff className="w-12 h-12 mx-auto opacity-30" />
-                      <p className="text-sm">Camera is offline</p>
-                    </div>
-                  </div>
-                ) : streamError ? (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <div className="text-center space-y-3">
-                      <Camera className="w-12 h-12 mx-auto opacity-30" />
-                      <p className="text-sm">Stream unavailable</p>
-                      <Button size="sm" variant="outline" onClick={handleRefreshStream}>
-                        <RefreshCw className="w-3.5 h-3.5 mr-2" />
-                        Retry
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <img
-                    key={streamKey}
-                    ref={imgRef}
-                    src={selectedCamera.stream_url}
-                    alt={`Live feed – ${selectedCamera.name}`}
-                    className="w-full h-full object-contain"
-                    onError={() => setStreamError(true)}
-                  />
-                )}
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#9FE1CB] bg-[#F0FBF7] px-3 py-1.5">
+              <span className="h-2 w-2 rounded-full bg-[#1D9E75]" />
+              <span className="text-[11px] font-medium text-[#1D9E75]">Live</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* GRID VIEW */}
+      {viewMode === 'grid' ? (
+        <Card className="border-border bg-card shadow-none">
+          <CardHeader className="pb-3">
+            <CardTitle className="app-section-title">Camera Grid View</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {filteredCameras.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-[#E4E6ED] px-4 py-12 text-center">
+                <p className="app-hint-text">No cameras available</p>
               </div>
-            </CardContent>
-          </Card>
-
-        </div>
-      </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {filteredCameras.map((camera) => (
+                  <div
+                    key={camera.id}
+                    className="group relative aspect-video overflow-hidden rounded-lg border border-[#E4E6ED]"
+                    style={{ backgroundColor: '#1A1A2E' }}
+                  >
+                    {camera.status === 'online' ? (
+                      <MjpegFeed
+                        url={camera.mjpegUrl}
+                        label={getFeedLabel(camera)}
+                      />
+                    ) : (
+                      <OfflineFeed />
+                    )}
+                    <FeedOverlay
+                      camera={camera}
+                      timestamp={formatTimestamp(currentTime)}
+                      showViewButton
+                      onView={() => openFocusedView(camera.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        /* FOCUS VIEW */
+        <Card className="border-border bg-card shadow-none">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+            <div>
+              <CardTitle className="app-section-title">Focused Camera View</CardTitle>
+              <p className="app-hint-text mt-1">{getFeedLabel(focusedCamera)}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-[32px] rounded-md border-[#E4E6ED] bg-card px-3 text-[13px] font-medium text-muted-foreground"
+              onClick={() => setViewMode('grid')}
+            >
+              Back to all cameras
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-0">
+            <div
+              className="relative h-[400px] overflow-hidden rounded-lg border border-[#E4E6ED]"
+              style={{ backgroundColor: '#1A1A2E' }}
+            >
+              {focusedCamera.status === 'online' ? (
+                <MjpegFeed
+                  url={focusedCamera.mjpegUrl}
+                  label={getFeedLabel(focusedCamera)}
+                  fill
+                />
+              ) : (
+                <OfflineFeed />
+              )}
+              <FeedOverlay
+                camera={focusedCamera}
+                timestamp={formatTimestamp(currentTime)}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
+
+const MjpegFeed = ({
+  url,
+  label,
+  fill = false,
+}: {
+  url: string;
+  label: string;
+  fill?: boolean;
+}) => {
+  const [imgSrc, setImgSrc] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const MAX_RETRIES = 5;
+  const RETRY_DELAY_MS = 2000;
+
+  useEffect(() => {
+    if (!url) {
+      setFailed(true);
+      setImgSrc('');
+      return;
+    }
+    setImgSrc(url);
+    setRetryCount(0);
+    setFailed(false);
+  }, [url]);
+
+  const handleError = () => {
+    if (retryCount < MAX_RETRIES) {
+      setTimeout(() => {
+        setRetryCount((c) => c + 1);
+        setImgSrc(url);
+      }, RETRY_DELAY_MS);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  if (!url || failed) return <OfflineFeed />;
+  if (!imgSrc) return null;
+
+  return (
+    <>
+      <img
+        key={`${imgSrc}-${retryCount}`}
+        src={imgSrc}
+        alt={`Live feed: ${label}`}
+        className={
+          fill
+            ? 'h-full w-full object-cover'
+            : 'absolute inset-0 h-full w-full object-cover'
+        }
+        onError={handleError}
+      />
+      {retryCount > 0 && retryCount < MAX_RETRIES && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(26,26,46,0.6)' }}
+        >
+          <div className="text-center">
+            <div className="mx-auto mb-2 h-6 w-6 animate-spin rounded-full border-b-2 border-white" />
+            <p className="text-[11px] text-white/70">Connecting to stream...</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const OfflineFeed = () => (
+  <div className="flex h-full w-full items-center justify-center bg-[#2B2F3D]">
+    <div className="text-center">
+      <WifiOff className="mx-auto h-10 w-10 text-muted-foreground" />
+      <p className="mt-3 text-[13px] font-normal text-muted-foreground">Camera is offline</p>
+    </div>
+  </div>
+);
+
+const FeedOverlay = ({
+  camera,
+  timestamp,
+  showViewButton = false,
+  onView,
+}: {
+  camera: MonitorCamera;
+  timestamp: string;
+  showViewButton?: boolean;
+  onView?: () => void;
+}) => (
+  <>
+    <div
+      className="absolute left-3 top-3 rounded-md px-2.5 py-1"
+      style={{ backgroundColor: 'rgba(26,26,46,0.72)' }}
+    >
+      <span className="text-[11px] font-normal text-white/85">
+        {getFeedLabel(camera)}
+      </span>
+    </div>
+
+    {camera.status === 'online' && (
+      <div
+        className="absolute right-3 top-3 flex items-center gap-1.5 rounded-md px-2.5 py-1"
+        style={{ backgroundColor: 'rgba(26,26,46,0.72)' }}
+      >
+        <span className="h-2 w-2 animate-pulse rounded-full bg-[#D92D20]" />
+        <span className="text-[11px] font-normal text-white/85">REC</span>
+      </div>
+    )}
+
+    <div className="absolute bottom-3 left-3">
+      <span className="text-[11px] font-normal text-white/65">{timestamp}</span>
+    </div>
+
+    {showViewButton && (
+      <div className="absolute inset-x-0 bottom-3 flex justify-center opacity-0 transition-opacity group-hover:opacity-100">
+        <button
+          type="button"
+          className="rounded-[5px] border border-white/15 px-3 py-1 text-[11px] font-normal text-white"
+          style={{ backgroundColor: 'rgba(26,26,46,0.72)' }}
+          onClick={onView}
+        >
+          View
+        </button>
+      </div>
+    )}
+  </>
+);
 
 export default LiveMonitor;
