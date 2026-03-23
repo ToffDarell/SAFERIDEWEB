@@ -1,21 +1,54 @@
+import ast
+import json
+
 from rest_framework import serializers
 from .models import Violation
+
+
+class FlexibleJSONField(serializers.JSONField):
+    def to_internal_value(self, data):
+        if data in (None, ''):
+            return None
+
+        if isinstance(data, str):
+            raw = data.strip()
+            if not raw:
+                return None
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                try:
+                    data = ast.literal_eval(raw)
+                except (ValueError, SyntaxError):
+                    self.fail('invalid')
+
+        return super().to_internal_value(data)
 
 
 class ViolationSerializer(serializers.ModelSerializer):
     camera_name = serializers.CharField(source='camera.name', read_only=True)
     reviewed_by_name = serializers.SerializerMethodField()
     reviewed_by_role = serializers.SerializerMethodField()
+    id_number = serializers.SerializerMethodField()
+    bounding_box = FlexibleJSONField(required=False, allow_null=True)
+    detected_objects = FlexibleJSONField(required=False, allow_null=True)
 
     class Meta:
         model = Violation
         fields = [
-            'id', 'camera', 'camera_name', 'detected_at', 'detection_status',
+            'id', 'id_number', 'camera', 'camera_name', 'detected_at', 'detection_status',
             'confidence_score', 'classification', 'plate_number',
             'evidence_image', 'bounding_box', 'detected_objects', 'processed_at',
             'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at',
         ]
-        read_only_fields = ['id', 'processed_at', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at']
+        read_only_fields = ['id', 'id_number', 'processed_at', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at']
+
+    def get_id_number(self, obj):
+        # Generates ID in format YYYY-XXX
+        if obj.detected_at:
+            return f"{obj.detected_at.year}-{obj.id:03d}"
+        return f"0000-{obj.id:03d}"
 
     def get_reviewed_by_name(self, obj):
         if obj.reviewed_by:
