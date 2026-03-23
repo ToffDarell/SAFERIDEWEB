@@ -86,12 +86,46 @@ export const useAdminNotifications = () => {
     }
   };
 
+  const markAllAsRead = async () => {
+    if (!isAdmin) return;
+
+    const previousNotifications = notifications;
+    setNotifications((prev) =>
+      prev.map((notification) => ({ ...notification, is_read: true }))
+    );
+
+    try {
+      await apiClient.post('/users/admin-notifications/mark-all-read/');
+    } catch (error) {
+      setNotifications(previousNotifications);
+      console.error('Failed to mark all admin notifications as read:', error);
+    }
+  };
+
+  const deleteNotification = async (notificationId: number) => {
+    if (!isAdmin) return;
+
+    const previousNotifications = notifications;
+    setNotifications((prev) =>
+      prev.filter((notification) => notification.id !== notificationId)
+    );
+
+    try {
+      await apiClient.delete(`/users/admin-notifications/${notificationId}/delete/`);
+    } catch (error) {
+      setNotifications(previousNotifications);
+      console.error('Failed to delete admin notification:', error);
+    }
+  };
+
   const unreadCount = notifications.filter((notification) => !notification.is_read).length;
 
   return {
     notifications,
     unreadCount,
     markAsRead,
+    markAllAsRead,
+    deleteNotification,
     loading,
   };
 };
