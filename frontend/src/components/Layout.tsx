@@ -1,5 +1,5 @@
 import { Link, useLocation, Outlet } from 'react-router-dom';
-import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, MonitorPlay } from 'lucide-react';
+import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, MonitorPlay, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -7,6 +7,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useState } from 'react';
 import { authService } from '@/services/auth';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
+import { useLocalNotifications } from '@/hooks/useLocalNotifications';
+import { useViolationNotifications } from '@/hooks/use-notifications';
 
 export const Layout = () => {
   const location = useLocation();
@@ -14,7 +16,17 @@ export const Layout = () => {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
-  const { notifications, unreadCount, markAsRead, loading } = useAdminNotifications();
+  const adminNotifications = useAdminNotifications();
+  const operatorNotifications = useLocalNotifications();
+  const notifications = isAdmin ? adminNotifications.notifications : operatorNotifications.notifications;
+  const unreadCount = isAdmin ? adminNotifications.unreadCount : operatorNotifications.unreadCount;
+  const loading = isAdmin ? adminNotifications.loading : operatorNotifications.loading;
+  const markAllAsRead = isAdmin ? adminNotifications.markAllAsRead : operatorNotifications.markAllAsRead;
+  const deleteNotification = isAdmin ? adminNotifications.deleteNotification : operatorNotifications.deleteNotification;
+  const notificationHeading = isAdmin ? 'Admin Notifications' : 'Notifications';
+  const emptyNotificationMessage = isAdmin ? 'No admin notifications' : 'No notifications yet';
+
+  useViolationNotifications();
   
   const handleLogout = () => {
     authService.logout();
@@ -26,34 +38,34 @@ export const Layout = () => {
   const isActive = (path: string) => location.pathname === path;
   
   const navItems = [
+    { path: '/live-monitor', icon: MonitorPlay, label: 'Live Monitor' },
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/violations', icon: AlertTriangle, label: 'Violations' },
-    { path: '/live-monitor', icon: MonitorPlay, label: 'Live Monitor' },
-    { path: '/cameras', icon: Camera, label: 'Camera Status' },
     { path: '/reports', icon: FileText, label: 'Reports' },
+    { path: '/cameras', icon: Camera, label: 'Camera Status' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} shrink-0 border-r border-border bg-card/50 backdrop-blur-sm transition-all duration-300 flex flex-col`}>
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} flex shrink-0 flex-col border-r border-border bg-card transition-all duration-300`}>
         {/* Sidebar Header */}
-        <div className="p-4 border-b border-border">
+        <div className="border-b border-border p-4">
           <div className="flex items-center justify-between">
             {sidebarOpen ? (
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center">
-                  <Camera className="w-6 h-6 text-primary-foreground" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5">
+                  <Camera className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h1 className="text-lg font-bold text-foreground">SafeRide AI</h1>
-                  <p className="text-xs text-muted-foreground">Helmet Detection</p>
+                  <h1 className="text-[13px] font-medium text-foreground">SafeRide AI</h1>
+                  <p className="app-hint-text">Helmet Detection</p>
                 </div>
               </div>
             ) : (
-              <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center mx-auto">
-                <Camera className="w-6 h-6 text-primary-foreground" />
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5">
+                <Camera className="h-5 w-5 text-primary" />
               </div>
             )}
             <Button 
@@ -84,10 +96,10 @@ export const Layout = () => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-[13px] font-medium transition-all ${
                   isActive(item.path)
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    ? 'border-primary/20 bg-primary/10 text-foreground shadow-sm'
+                    : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
                 title={!sidebarOpen ? item.label : ''}
               >
@@ -103,8 +115,8 @@ export const Layout = () => {
           {sidebarOpen ? (
             <div className="space-y-2">
               <div className="px-3 py-2">
-                <p className="text-sm font-medium text-foreground truncate">{currentUser.name || 'Admin'}</p>
-                <p className="text-xs text-muted-foreground truncate">
+                <p className="truncate text-[13px] font-medium text-foreground">{currentUser.name || 'Admin'}</p>
+                <p className="app-hint-text truncate">
                   {currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator'}
                 </p>
               </div>
@@ -135,77 +147,103 @@ export const Layout = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-screen min-w-0">
         {/* Header */}
-        <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
+        <header className="sticky top-0 z-50 border-b border-border bg-card">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <h2 className="text-lg font-semibold text-foreground">
+              <h2 className="app-page-heading">
                 {navItems.find(item => item.path === location.pathname)?.label || 'SafeRide AI'}
               </h2>
             </div>
             
             <div className="flex items-center gap-4">
-              {isAdmin && (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="ghost" size="sm" className="relative">
-                      <Bell className="w-4 h-4" />
-                      {unreadCount > 0 && (
-                        <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
-                          {unreadCount}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="relative">
+                    <Bell className="w-4 h-4" />
+                    {unreadCount > 0 && (
+                      <Badge className="app-badge-text absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center p-0">
+                        {unreadCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="app-section-title">{notificationHeading}</h4>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={unreadCount > 0 ? 'default' : 'outline'}
+                          className="h-6 px-2"
+                        >
+                          Unread {unreadCount}
                         </Badge>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-80">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-semibold text-sm">Admin Notifications</h4>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[12px]"
+                          onClick={markAllAsRead}
+                          disabled={unreadCount === 0}
+                        >
+                          Read
+                        </Button>
                         {loading && (
-                          <span className="text-xs text-muted-foreground">Loading...</span>
-                        )}
-                      </div>
-                      <div className="space-y-2 max-h-80 overflow-y-auto">
-                        {!loading && notifications.length === 0 ? (
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            No admin notifications
-                          </p>
-                        ) : (
-                          notifications.map((notification) => (
-                            <button
-                              key={notification.id}
-                              type="button"
-                              onClick={() => {
-                                if (!notification.is_read) {
-                                  markAsRead(notification.id);
-                                }
-                              }}
-                              className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                                notification.is_read
-                                  ? 'bg-background'
-                                  : 'bg-accent/10 border-accent'
-                              }`}
-                            >
-                              <p className="text-sm font-medium">{notification.title}</p>
-                              <p className="text-sm text-muted-foreground mt-1">
-                                {notification.message}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-2">
-                                {new Date(notification.created_at).toLocaleString()}
-                              </p>
-                            </button>
-                          ))
+                          <span className="app-hint-text">Loading...</span>
                         )}
                       </div>
                     </div>
-                  </PopoverContent>
-                </Popover>
-              )}
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {!loading && notifications.length === 0 ? (
+                        <p className="app-body-text py-4 text-center text-muted-foreground">
+                          {emptyNotificationMessage}
+                        </p>
+                      ) : (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={`group relative w-full rounded-lg border p-3 pr-12 text-left transition-colors ${
+                              notification.is_read
+                                ? 'bg-background'
+                                : 'border-primary/20 bg-primary/5'
+                            }`}
+                          >
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-2 top-2 h-8 w-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                              onClick={() => deleteNotification(notification.id)}
+                              aria-label="Delete notification"
+                              title="Delete notification"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                            <p className="text-[13px] font-medium text-foreground">{notification.title}</p>
+                            <p className="mt-1 text-[13px] text-muted-foreground">
+                              {notification.message}
+                            </p>
+                            <div className="mt-2 flex items-center justify-between">
+                              <p className="app-hint-text">
+                                {new Date(notification.created_at).toLocaleString()}
+                              </p>
+                              <Badge variant={notification.is_read ? 'outline' : 'default'} className="ml-2 h-5 px-1.5">
+                                {notification.is_read ? 'READ' : 'UNREAD'}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 overflow-auto bg-background p-6">
           <Outlet />
         </main>
       </div>
