@@ -15,6 +15,7 @@ import NotFound from "./pages/NotFound";
 import Registration from "./pages/Registration";
 import Reports from "./pages/Reports";
 import LiveMonitor from "./pages/LiveMonitor";
+
 import { authService } from "./services/auth";
 import { useState, useEffect } from "react";
 
@@ -62,9 +63,10 @@ const App = () => {
                 <Layout />
               </ProtectedRoute>
             }>
+              <Route path="/live-monitor" element={<LiveMonitor />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/violations" element={<Violations />} />
-              <Route path="/live-monitor" element={<LiveMonitor />} />
+
               <Route path="/cameras" element={<CameraStatus />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
