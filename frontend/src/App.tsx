@@ -18,6 +18,7 @@ import LiveMonitor from "./pages/LiveMonitor";
 
 import { authService } from "./services/auth";
 import { useState, useEffect } from "react";
+import { PermissionsProvider } from "./contexts/PermissionsContext";
 
 const queryClient = new QueryClient();
 
@@ -44,39 +45,68 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            {/* Public Routes */}
-            <Route 
-              path="/" 
-              element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <AdminLogin />} 
-            />
-            <Route path="/landing" element={<Index />} />
-            <Route path="/register" element={<Registration />} />
-            
-            {/* Protected Routes */}
-            <Route element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }>
-              <Route path="/live-monitor" element={<LiveMonitor />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/violations" element={<Violations />} />
-
-              <Route path="/cameras" element={<CameraStatus />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-            
-            {/* Catch-all */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <PermissionsProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              {/* Public Routes */}
+              <Route 
+                path="/" 
+                element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <AdminLogin />} 
+              />
+              <Route path="/landing" element={<Index />} />
+              <Route path="/register" element={<Registration />} />
+              
+              {/* Protected Routes */}
+              <Route element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route
+                  path="/live-monitor"
+                  element={
+                    <ProtectedRoute requiredPermission="can_view_live_monitor">
+                      <LiveMonitor />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route
+                  path="/violations"
+                  element={
+                    <ProtectedRoute requiredPermission="can_view_violations">
+                      <Violations />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/cameras"
+                  element={
+                    <ProtectedRoute requiredPermission="can_view_cameras">
+                      <CameraStatus />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/reports"
+                  element={
+                    <ProtectedRoute requiredPermission="can_view_reports">
+                      <Reports />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+              
+              {/* Catch-all */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </PermissionsProvider>
     </QueryClientProvider>
   );
 };

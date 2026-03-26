@@ -10,11 +10,12 @@ import { useToast } from '@/hooks/use-toast';
 import { violationsService } from '@/services/violations';
 import apiClient from '@/services/api';
 import { camerasService } from '@/services/cameras';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 const Reports = () => {
-  const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const isOperator = currentUser.role === 'tmc_operator';
+  const { hasPermission } = usePermissions();
   const { toast } = useToast();
+  const canExportReports = hasPermission('can_export_reports');
   
   const [violations, setViolations] = useState<any[]>([]);
   const [weeklyData, setWeeklyData] = useState<any[]>([]);
@@ -111,7 +112,7 @@ const Reports = () => {
     setWeeklyData(weeklyStats);
   };
 
-  const handleGenerateReport = async (format: 'csv' | 'pdf') => {
+  const handleGenerateReport = async (format: 'xlsx' | 'pdf') => {
     try {
       toast({
         title: 'Generating Report...',
@@ -132,7 +133,9 @@ const Reports = () => {
       );
 
       const blob = new Blob([response.data], {
-        type: format === 'pdf' ? 'application/pdf' : 'text/csv',
+        type: format === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
 
       const url = window.URL.createObjectURL(blob);
@@ -201,16 +204,18 @@ const Reports = () => {
           <p className="app-body-text text-muted-foreground">Comprehensive violation analytics</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Button onClick={() => handleGenerateReport('csv')} variant="outline">
-              <FileText className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
-            <Button onClick={() => handleGenerateReport('pdf')}>
-              <FileText className="w-4 h-4 mr-2" />
-              Export PDF
-            </Button>
-          </div>
+          {canExportReports && (
+            <div className="flex items-center gap-2">
+              <Button onClick={() => handleGenerateReport('xlsx')} variant="outline">
+                <FileText className="w-4 h-4 mr-2" />
+                Export Excel
+              </Button>
+              <Button onClick={() => handleGenerateReport('pdf')}>
+                <FileText className="w-4 h-4 mr-2" />
+                Export PDF
+              </Button>
+            </div>
+          )}
           <FileText className="w-8 h-8 text-primary" />
         </div>
       </div>

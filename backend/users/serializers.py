@@ -1,35 +1,57 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from cameras.models import SystemSettings
-from .models import AdminNotification, UserProfile
+from .models import AdminNotification, UserProfile, get_default_operator_permissions
+from .recaptcha import validate_recaptcha_token
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['role', 'status', 'phone', 'organization', 'created_at']
-        read_only_fields = ['status', 'created_at']
+        fields = ['role', 'status', 'phone', 'organization', 'permissions', 'created_at']
+        read_only_fields = ['status', 'permissions', 'created_at']
 
 class UserSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer(required=False)
+    permissions = serializers.JSONField(source='profile.permissions', read_only=True)
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'profile']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'profile', 'permissions']
         read_only_fields = ['id']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        profile = getattr(instance, 'profile', None)
+        if profile and hasattr(profile, 'get_effective_permissions'):
+            effective_permissions = profile.get_effective_permissions()
+            data['permissions'] = effective_permissions
+            if isinstance(data.get('profile'), dict):
+                data['profile']['permissions'] = effective_permissions
+        return data
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
+    captcha_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES, default='tmc_operator')
     phone = serializers.CharField(required=False, allow_blank=True)
     organization = serializers.CharField(required=False, allow_blank=True)
     
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'password_confirm', 'first_name', 'last_name', 'role', 'phone', 'organization']
+        fields = ['username', 'email', 'password', 'password_confirm', 'captcha_token', 'first_name', 'last_name', 'role', 'phone', 'organization']
+
+    def validate_email(self, value):
+        normalized_email = value.strip().lower()
+        if User.objects.filter(email__iexact=normalized_email).exists():
+            raise serializers.ValidationError("A user with this email already exists")
+        return normalized_email
     
     def validate(self, data):
         min_length = max(1, SystemSettings.get_settings().password_min_length)
+        request = self.context.get('request') if hasattr(self, 'context') else None
+
+        validate_recaptcha_token(data.get('captcha_token', ''), request_context=request)
 
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError({"password": "Passwords do not match"})
@@ -42,6 +64,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Remove extra fields
         validated_data.pop('password_confirm')
+        validated_data.pop('captcha_token', None)
         # Determine role: if request is present and not an admin, force 'tmc_operator'
         request = self.context.get('request') if hasattr(self, 'context') else None
         incoming_role = validated_data.pop('role', 'tmc_operator')
@@ -76,6 +99,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 'role':         role,
                 'phone':        phone,
                 'organization': organization,
+                'permissions':  get_default_operator_permissions() if role == 'tmc_operator' else {},
                 'status':       'approved' if role == 'admin' and request is not None and getattr(request, 'user', None) and request.user.is_staff else 'pending',
             }
         )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -10,12 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useToast } from '@/hooks/use-toast';
 import { violationsService, type Violation } from '@/services/violations';
 import { camerasService } from '@/services/cameras';
+import apiClient from '@/services/api';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 const Violations = () => {
   const { toast } = useToast();
-  const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const isAdmin = currentUser.role === 'admin';
-  const mediaBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const { currentUser, hasPermission, isAdmin, isLoading: isPermissionsLoading } = usePermissions();
+  const canUpdateViolationStatus = hasPermission('can_update_violation_status');
+  const canExportReports = hasPermission('can_export_reports');
 
   // Read preferences saved from Settings page
   const prefs = JSON.parse(localStorage.getItem('userPreferences') || '{}');
@@ -25,6 +27,7 @@ const Violations = () => {
 
   const [violations, setViolations] = useState<Violation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDate, setFilterDate] = useState('all');
@@ -32,6 +35,13 @@ const Violations = () => {
   const [filterDetectionStatus, setFilterDetectionStatus] = useState('all');
   const [filterReviewStatus, setFilterReviewStatus] = useState(defaultFilter);
   const [selectedEvidence, setSelectedEvidence] = useState<Violation | null>(null);
+  const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState('');
+  const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState('');
+  const evidenceObjectUrlRef = useRef<string | null>(null);
+  const trimmedSearchQuery = searchQuery.trim();
+  const isSearchTooShort =
+    !isPermissionsLoading && !isAdmin && trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 3;
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,7 +78,7 @@ const Violations = () => {
   }, [searchQuery, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
 
   useEffect(() => {
-    loadViolations();
+    loadViolations(!hasLoadedOnce);
 
     const interval = setInterval(async () => {
       if (currentPage !== 1) return;
@@ -76,9 +86,27 @@ const Violations = () => {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [currentPage, itemsPerPage, searchQuery, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    searchQuery,
+    filterDate,
+    filterLocation,
+    filterDetectionStatus,
+    filterReviewStatus,
+    isSearchTooShort,
+    isPermissionsLoading,
+  ]);
 
-  const handleExport = async (format: 'csv' | 'pdf' = 'csv') => {
+  useEffect(() => {
+    return () => {
+      if (evidenceObjectUrlRef.current) {
+        URL.revokeObjectURL(evidenceObjectUrlRef.current);
+      }
+    };
+  }, []);
+
+  const handleExport = async (format: 'xlsx' | 'pdf' = 'xlsx') => {
     try {
       toast({
         title: "Generating Report...",
@@ -93,15 +121,15 @@ const Violations = () => {
       if (filterDetectionStatus !== "all") params.append("detection_status", filterDetectionStatus);
       if (filterReviewStatus !== "all") params.append("review_status", filterReviewStatus);
 
-      const token = localStorage.getItem("token");
-      const baseURL = "http://localhost:8000/api";
-      const response = await fetch(`${baseURL}/violations/export/?${params.toString()}`, {
-        headers: {
-            "Authorization": `Bearer ${token}`
-        }
+      const response = await apiClient.get(
+        `/violations/export/?${params.toString()}`,
+        { responseType: 'blob' }
+      );
+      const blob = new Blob([response.data], {
+        type: format === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      if (!response.ok) throw new Error("Export failed");
-      const blob = await response.blob();
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -130,13 +158,30 @@ const Violations = () => {
       setIsLoading(true);
     }
 
+    if (isPermissionsLoading) {
+      if (showLoader) {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (isSearchTooShort) {
+      setViolations([]);
+      setTotalItems(0);
+      setTotalPages(1);
+      if (showLoader) {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     try {
       const params: any = {
         page: currentPage,
         page_size: itemsPerPage,
       };
 
-      if (searchQuery.trim()) params.search = searchQuery.trim();
+      if (trimmedSearchQuery) params.search = trimmedSearchQuery;
       if (filterDate !== 'all') params.date = filterDate;
       if (filterLocation !== 'all') params.location = filterLocation;
       if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
@@ -157,6 +202,7 @@ const Violations = () => {
         variant: "destructive",
       });
     } finally {
+      setHasLoadedOnce(true);
       if (showLoader) {
         setIsLoading(false);
       }
@@ -164,11 +210,15 @@ const Violations = () => {
   };
 
   const handleStatusUpdate = async (violationId: number, newStatus: string) => {
+    if (!canUpdateViolationStatus) {
+      return;
+    }
+
     const validStatus = newStatus.toLowerCase() as 'pending' | 'reviewed' | 'resolved';
 
     // Step 1: Optimistic UI update immediately
-    const reviewerName = currentUser.name || currentUser.username || 'Unknown';
-    const reviewerRole = currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator';
+    const reviewerName = currentUser?.name || currentUser?.username || 'Unknown';
+    const reviewerRole = currentUser?.role === 'admin' ? 'Administrator' : 'TMC Operator';
     setViolations(prev =>
       prev.map(v => v.id === violationId ? {
         ...v,
@@ -210,12 +260,43 @@ const Violations = () => {
     return date.toLocaleTimeString();
   };
 
-  const getEvidenceUrl = (evidenceImage: string | null) => {
-    if (!evidenceImage) return '';
-    if (evidenceImage.startsWith('http://') || evidenceImage.startsWith('https://')) {
-      return evidenceImage;
+  const resetEvidencePreview = () => {
+    if (evidenceObjectUrlRef.current) {
+      URL.revokeObjectURL(evidenceObjectUrlRef.current);
+      evidenceObjectUrlRef.current = null;
     }
-    return new URL(evidenceImage, mediaBaseUrl).toString();
+    setSelectedEvidenceUrl('');
+    setEvidenceError('');
+    setIsEvidenceLoading(false);
+  };
+
+  const handleEvidenceDialogChange = (open: boolean) => {
+    if (!open) {
+      resetEvidencePreview();
+      setSelectedEvidence(null);
+    }
+  };
+
+  const handleViewEvidence = async (violation: Violation) => {
+    setSelectedEvidence(violation);
+    resetEvidencePreview();
+    setIsEvidenceLoading(true);
+
+    try {
+      const evidenceBlob = await violationsService.getEvidenceBlob(violation.id);
+      const previewUrl = URL.createObjectURL(evidenceBlob);
+      evidenceObjectUrlRef.current = previewUrl;
+      setSelectedEvidenceUrl(previewUrl);
+    } catch (error) {
+      setEvidenceError('Protected evidence could not be loaded.');
+      toast({
+        title: 'Evidence Unavailable',
+        description: 'This evidence image could not be loaded securely.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsEvidenceLoading(false);
+    }
   };
 
   const getStatusBadge = (classification: string) => {
@@ -251,10 +332,10 @@ const Violations = () => {
           <h2 className="app-page-heading">Violations</h2>
           <p className="app-body-text text-muted-foreground">Detected helmet violations and plate recognition</p>
         </div>
-        {isAdmin && (
-          <Button variant="outline" onClick={() => handleExport('csv')}>
+        {canExportReports && (
+          <Button variant="outline" onClick={() => handleExport('xlsx')}>
             <Download className="w-4 h-4" />
-            Export Report
+            Export Excel
           </Button>
         )}
       </div>
@@ -264,7 +345,9 @@ const Violations = () => {
           <div className="flex items-center justify-between gap-3">
             <div>
               <CardTitle className="app-section-title">Filter By</CardTitle>
-              <p className="app-hint-text mt-1">Search, date, location, status, and review status</p>
+              <p className="app-hint-text mt-1">
+                Plate number, date, location, status, and review status
+              </p>
             </div>
             <Button
               type="button"
@@ -283,14 +366,29 @@ const Violations = () => {
             </Button>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by plate number or camera..."
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="space-y-2">
+              <label className="app-label-text">Plate Number</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search plate number"
+                  className="pl-10"
+                  value={searchQuery}
+                  maxLength={isAdmin ? undefined : 3}
+                  onChange={(e) => setSearchQuery(isAdmin ? e.target.value : e.target.value.slice(0, 3))}
+                />
+              </div>
+              <p className="app-hint-text">
+                {isPermissionsLoading
+                  ? 'Loading your access permissions...'
+                  : isSearchTooShort
+                  ? 'Enter exactly 3 characters to search plate numbers.'
+                  : !canUpdateViolationStatus
+                    ? 'Status updates are read-only for your account.'
+                    : isAdmin
+                      ? 'Search by any plate number fragment.'
+                      : 'Operators can search using exactly 3 characters.'}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="app-label-text">Date</label>
@@ -435,13 +533,13 @@ const Violations = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        {violation.evidence_image ? (
+                        {violation.has_evidence_image ? (
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
                             className="h-8 px-3 text-[12px]"
-                            onClick={() => setSelectedEvidence(violation)}
+                            onClick={() => void handleViewEvidence(violation)}
                           >
                             <Eye className="mr-2 h-4 w-4" />
                             View Evidence
@@ -454,6 +552,7 @@ const Violations = () => {
                         <div className="flex items-center gap-2">
                           <Select 
                             value={violation.review_status || 'pending'}
+                            disabled={!canUpdateViolationStatus}
                             onValueChange={(value) => handleStatusUpdate(violation.id, value)}
                           >
                             <SelectTrigger className="w-32">
@@ -512,7 +611,7 @@ const Violations = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(selectedEvidence)} onOpenChange={(open) => !open && setSelectedEvidence(null)}>
+      <Dialog open={Boolean(selectedEvidence)} onOpenChange={handleEvidenceDialogChange}>
         <DialogContent className="max-w-4xl border-border bg-card">
           <DialogHeader>
             <DialogTitle className="app-section-title">Violation Evidence</DialogTitle>
@@ -548,11 +647,24 @@ const Violations = () => {
               </div>
 
               <div className="overflow-hidden rounded-lg border border-border bg-[#F5F6FA]">
-                <img
-                  src={getEvidenceUrl(selectedEvidence.evidence_image)}
-                  alt={`Evidence for violation ${selectedEvidence.id_number || selectedEvidence.id}`}
-                  className="max-h-[70vh] w-full object-contain"
-                />
+                {isEvidenceLoading ? (
+                  <div className="flex min-h-[320px] items-center justify-center">
+                    <div className="text-center">
+                      <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
+                      <p className="app-hint-text">Loading protected evidence...</p>
+                    </div>
+                  </div>
+                ) : evidenceError ? (
+                  <div className="flex min-h-[320px] items-center justify-center px-6 text-center">
+                    <p className="app-body-text text-muted-foreground">{evidenceError}</p>
+                  </div>
+                ) : (
+                  <img
+                    src={selectedEvidenceUrl}
+                    alt={`Evidence for violation ${selectedEvidence.id_number || selectedEvidence.id}`}
+                    className="max-h-[70vh] w-full object-contain"
+                  />
+                )}
               </div>
             </div>
           )}

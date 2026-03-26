@@ -1,12 +1,20 @@
 import { useEffect, useRef } from 'react';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { violationsService, type Violation } from '@/services/violations';
 import { useToast } from './use-toast';
 
 const STORAGE_KEY = 'notifications';
+const SETTINGS_KEY = 'notificationSettings';
 const POLL_INTERVAL_MS = 1500;
 const MAX_TRACKED_IDS = 100;
 const MAX_LOCAL_NOTIFICATIONS = 50;
 const RECENT_THRESHOLD_MS = 30000;
+
+type NotificationPreferences = {
+  live_violation_popups: boolean;
+  notification_sound: boolean;
+  auto_hide_ms: number;
+};
 
 type StoredLocalNotification = {
   id: number;
@@ -21,6 +29,51 @@ const readStoredNotifications = (): StoredLocalNotification[] => {
     return Array.isArray(stored) ? stored : [];
   } catch {
     return [];
+  }
+};
+
+const readNotificationPreferences = (): NotificationPreferences => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    return {
+      live_violation_popups: parsed.live_violation_popups ?? true,
+      notification_sound: parsed.notification_sound ?? false,
+      auto_hide_ms: parsed.auto_hide_ms ?? 5000,
+    };
+  } catch {
+    return {
+      live_violation_popups: true,
+      notification_sound: false,
+      auto_hide_ms: 5000,
+    };
+  }
+};
+
+const playNotificationTone = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const audioContext = new AudioContextClass();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gainNode.gain.value = 0.035;
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.12);
+    oscillator.onended = () => {
+      void audioContext.close();
+    };
+  } catch {
+    // Ignore browser audio restrictions.
   }
 };
 
@@ -56,10 +109,16 @@ const appendLocalNotification = (violation: Violation) => {
 
 export const useViolationNotifications = () => {
   const { toast } = useToast();
+  const { hasPermission, isLoading } = usePermissions();
   const isBootstrappedRef = useRef(false);
   const seenViolationIdsRef = useRef(new Set<number>());
+  const canViewViolations = hasPermission('can_view_violations');
 
   useEffect(() => {
+    if (isLoading || !canViewViolations) {
+      return;
+    }
+
     let isMounted = true;
 
     const markSeen = (violationId: number) => {
@@ -114,12 +173,19 @@ export const useViolationNotifications = () => {
           );
 
         freshUnseenViolations.forEach((violation) => {
-          toast({
-            title: 'Violation Detected!',
-            description: getViolationMessage(violation),
-            variant: 'destructive',
-            duration: 5000,
-          });
+          const preferences = readNotificationPreferences();
+          if (preferences.live_violation_popups) {
+            toast({
+              title: 'Violation Detected!',
+              description: getViolationMessage(violation),
+              variant: 'destructive',
+              duration: preferences.auto_hide_ms,
+            });
+
+            if (preferences.notification_sound) {
+              playNotificationTone();
+            }
+          }
           appendLocalNotification(violation);
         });
 
@@ -140,5 +206,5 @@ export const useViolationNotifications = () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [toast]);
+  }, [canViewViolations, isLoading, toast]);
 };

@@ -57,3 +57,18 @@ class Violation(models.Model):
     def __str__(self):
         plate = self.plate_number or 'Unknown'
         return f"{self.get_classification_display()} - {plate} @ {self.detected_at.strftime('%Y-%m-%d %H:%M')}"
+
+    @staticmethod
+    def mask_plate_number(value):
+        plate = (value or '').strip()
+        if not plate:
+            return None
+        if len(plate) <= 2:
+            return '*' * len(plate)
+        if len(plate) <= 4:
+            return f"{plate[0]}{'*' * (len(plate) - 2)}{plate[-1]}"
+        masked_length = max(1, len(plate) - 5)
+        return f"{plate[:3]}{'*' * masked_length}{plate[-2:]}"
+
+    def get_masked_plate_number(self):
+        return self.mask_plate_number(self.plate_number)

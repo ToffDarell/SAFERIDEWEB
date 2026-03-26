@@ -1,57 +1,53 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Camera, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usersService } from '@/services/users';
 import { googleAuthService } from '@/services/googleAuth';
 import { authService } from '@/services/auth';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
+import ReCAPTCHA from 'react-google-recaptcha';
+
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+const PUBLIC_SIGNUP_ROLE = 'tmc_operator' as const;
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
 
 const Registration = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [formData, setFormData] = useState<{
-  username: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  organization: string;
-  role: 'admin' | 'tmc_operator';
-}>({
-  username: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-  firstName: '',
-  lastName: '',
-  phone: '',
-  organization: '',
-  role: 'admin',
-});
+    username: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+  }>({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+  });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
-    });
-  };
-
-  const handleRoleChange = (value: 'admin') => {
-    setFormData({
-      ...formData,
-      role: value,
     });
   };
 
@@ -67,6 +63,16 @@ const Registration = () => {
       return;
     }
 
+    const recaptchaValue = recaptchaRef.current?.getValue();
+    if (!recaptchaValue) {
+      toast({
+        title: 'Verification Required',
+        description: 'Please complete the reCAPTCHA verification',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -75,11 +81,11 @@ const Registration = () => {
         email: formData.email,
         password: formData.password,
         password_confirm: formData.confirmPassword,
+        captcha_token: recaptchaValue,
         first_name: formData.firstName,
         last_name: formData.lastName,
         phone: formData.phone,
-        organization: formData.organization,
-        role: formData.role,
+        role: PUBLIC_SIGNUP_ROLE,
       });
 
       toast({
@@ -88,12 +94,13 @@ const Registration = () => {
       });
 
       navigate('/');
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Registration Failed',
-        description: error.message || 'Failed to create account. Please try again.',
+        description: getErrorMessage(error, 'Failed to create account. Please try again.'),
         variant: 'destructive',
       });
+      recaptchaRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -109,10 +116,25 @@ const Registration = () => {
       return;
     }
 
+    const recaptchaValue = recaptchaRef.current?.getValue();
+    if (!recaptchaValue) {
+      toast({
+        title: 'Verification Required',
+        description: 'Please complete the reCAPTCHA verification',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const result = await googleAuthService.loginWithGoogle(credentialResponse.credential, formData.role, true);
+      const result = await googleAuthService.loginWithGoogle(
+        credentialResponse.credential,
+        PUBLIC_SIGNUP_ROLE,
+        true,
+        recaptchaValue
+      );
       
       if (result.success) {
         // Enforce account status check
@@ -149,13 +171,15 @@ const Registration = () => {
           description: result.error,
           variant: 'destructive',
         });
+        recaptchaRef.current?.reset();
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Google Registration Failed',
-        description: error.message || 'An error occurred during Google registration',
+        description: getErrorMessage(error, 'An error occurred during Google registration'),
         variant: 'destructive',
       });
+      recaptchaRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -186,14 +210,14 @@ const Registration = () => {
             <Camera className="w-10 h-10 text-primary-foreground" />
           </div>
           <h1 className="app-page-heading">Create Account</h1>
-          <p className="app-body-text mt-2 text-muted-foreground">Register for SafeRide System Access</p>
+          <p className="app-body-text mt-2 text-muted-foreground">Request TMC Operator access to the SafeRide system</p>
         </div>
 
         <Card className="border-border shadow-xl">
           <CardHeader>
             <CardTitle className="app-section-title">Registration Form</CardTitle>
             <CardDescription>
-              Fill in your details to request access to the SafeRide dashboard
+              Fill in your details to request a TMC Operator account for the SafeRide dashboard
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -231,7 +255,7 @@ const Registration = () => {
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="johndoe"
+                  placeholder=""
                   value={formData.username}
                   onChange={handleInputChange}
                   required
@@ -262,32 +286,6 @@ const Registration = () => {
                   onChange={handleInputChange}
                   required
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="organization">Organization</Label>
-                <Input
-                  id="organization"
-                  name="organization"
-                  type="text"
-                  placeholder="TMC Manila"
-                  value={formData.organization}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={handleRoleChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select your role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tmc_operator">TMC Operator</SelectItem>
-                    <SelectItem value="admin">Administrator</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -337,6 +335,14 @@ const Registration = () => {
                 {isLoading ? 'Creating Account...' : 'Create Account'}
               </Button>
             </form>
+
+            <div className="mt-4 flex justify-center">
+              <ReCAPTCHA
+                ref={recaptchaRef}
+                sitekey={RECAPTCHA_SITE_KEY}
+                theme="light"
+              />
+            </div>
 
             <div className="mt-6">
               <div className="relative">

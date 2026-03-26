@@ -9,7 +9,12 @@ from .serializers import CameraSerializer, SystemSettingsSerializer
 import logging
 from rest_framework_simplejwt.tokens import AccessToken
 from django.contrib.auth import get_user_model
-from users.permissions import IsAdmin, IsAdminOrReadOnly, IsApprovedUser, IsYoloService
+from users.permissions import (
+    CanAccessCameraData,
+    IsAdmin,
+    IsAdminOrReadOnly,
+    IsYoloService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +25,7 @@ class CameraViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
-            return [IsApprovedUser()]
+            return [CanAccessCameraData()]
         if self.action == 'heartbeat':
             return [IsYoloService()]
         return [IsAdmin()]

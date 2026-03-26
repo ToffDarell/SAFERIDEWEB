@@ -15,7 +15,7 @@ export interface AdminNotification {
   violation_id: number | null;
 }
     
-export const useAdminNotifications = () => {
+export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
 
@@ -37,7 +37,9 @@ export const useAdminNotifications = () => {
       }
 
       try {
-        const response = await apiClient.get('/users/admin-notifications/');
+        const response = await apiClient.get('/users/admin-notifications/', {
+          params: { scope },
+        });
         if (isMounted) {
           setNotifications(response.data || []);
         }
@@ -59,7 +61,7 @@ export const useAdminNotifications = () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isAdmin]);
+  }, [isAdmin, scope]);
 
   const markAsRead = async (notificationId: number) => {
     if (!isAdmin) return;
@@ -95,7 +97,9 @@ export const useAdminNotifications = () => {
     );
 
     try {
-      await apiClient.post('/users/admin-notifications/mark-all-read/');
+      await apiClient.post('/users/admin-notifications/mark-all-read/', null, {
+        params: { scope },
+      });
     } catch (error) {
       setNotifications(previousNotifications);
       console.error('Failed to mark all admin notifications as read:', error);

@@ -17,6 +17,14 @@ def parse_debug(value):
         return False
     return False
 
+
+def parse_csv(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value).split(',') if item.strip()]
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -26,12 +34,14 @@ SECRET_KEY = config('SECRET_KEY')
 # Recaptcha settings
 RECAPTCHA_PUBLIC_KEY = config('RECAPTCHA_PUBLIC_KEY')
 RECAPTCHA_PRIVATE_KEY = config('RECAPTCHA_PRIVATE_KEY')
+RECAPTCHA_VERIFY_ENABLED = parse_debug(config('RECAPTCHA_VERIFY_ENABLED', default='true'))
 
 
 
 DEBUG = parse_debug(config('DEBUG', default='true'))
 
-ALLOWED_HOSTS = []
+DEFAULT_ALLOWED_HOSTS = 'localhost,127.0.0.1' if DEBUG else ''
+ALLOWED_HOSTS = parse_csv(config('ALLOWED_HOSTS', default=DEFAULT_ALLOWED_HOSTS))
 
 # Application definition
 INSTALLED_APPS = [
@@ -136,16 +146,34 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# CORS
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
+CORS_DEFAULT_ORIGINS = (
+    'http://localhost:5173,'
+    'http://127.0.0.1:5173,'
+    'http://localhost:3000,'
+    'http://127.0.0.1:3000'
+) if DEBUG else ''
+CORS_ALLOWED_ORIGINS = parse_csv(config('CORS_ALLOWED_ORIGINS', default=CORS_DEFAULT_ORIGINS))
 CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = parse_csv(config('CSRF_TRUSTED_ORIGINS', default=CORS_DEFAULT_ORIGINS))
+
+# Production security
+SECURE_SSL_REDIRECT = parse_debug(config('SECURE_SSL_REDIRECT', default='false' if DEBUG else 'true'))
+SESSION_COOKIE_SECURE = parse_debug(config('SESSION_COOKIE_SECURE', default='false' if DEBUG else 'true'))
+CSRF_COOKIE_SECURE = parse_debug(config('CSRF_COOKIE_SECURE', default='false' if DEBUG else 'true'))
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=0 if DEBUG else 31536000, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = parse_debug(
+    config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default='false' if DEBUG else 'true')
+)
+SECURE_HSTS_PRELOAD = parse_debug(config('SECURE_HSTS_PRELOAD', default='false' if DEBUG else 'true'))
+SECURE_CONTENT_TYPE_NOSNIFF = parse_debug(config('SECURE_CONTENT_TYPE_NOSNIFF', default='true'))
+X_FRAME_OPTIONS = config('X_FRAME_OPTIONS', default='DENY')
+USE_X_FORWARDED_PROTO = parse_debug(config('USE_X_FORWARDED_PROTO', default='false' if DEBUG else 'true'))
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if USE_X_FORWARDED_PROTO else None
+
+# Login security
+AUTH_LOCKOUT_FAILURE_LIMIT = config('AUTH_LOCKOUT_FAILURE_LIMIT', default=5, cast=int)
+AUTH_LOCKOUT_WINDOW_SECONDS = config('AUTH_LOCKOUT_WINDOW_SECONDS', default=15 * 60, cast=int)
+AUTH_LOCKOUT_DURATION_SECONDS = config('AUTH_LOCKOUT_DURATION_SECONDS', default=15 * 60, cast=int)
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -156,6 +184,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "users.permissions.IsApprovedUser",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "login_burst": config('LOGIN_BURST_RATE', default='10/minute'),
+        "login_sustained": config('LOGIN_SUSTAINED_RATE', default='30/hour'),
+    },
     'DEFAULT_PAGINATION_CLASS': 'saferide_backend.pagination.DynamicPageSizePagination',
     'PAGE_SIZE': 10,
 }

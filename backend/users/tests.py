@@ -1,11 +1,13 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APIRequestFactory, APITestCase
+from unittest.mock import patch
 
 from cameras.models import Camera, SystemSettings
-from users.models import AdminNotification, UserProfile
+from users.models import AdminNotification, UserProfile, get_default_operator_permissions
 from users.permissions import IsAdmin, IsOperator
 from violations.models import Violation
 
@@ -13,6 +15,7 @@ from violations.models import Violation
 class LoginAuthTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        cache.clear()
 
         self.approved_user = User.objects.create_user(
             username="approved_user",
@@ -64,6 +67,165 @@ class LoginAuthTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data["detail"]), "Account is not approved.")
+
+    def test_login_is_locked_after_repeated_failed_attempts(self):
+        for _ in range(5):
+            response = self.client.post(
+                "/api/auth/token/",
+                {"username": "approved_user", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        locked_response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+
+        self.assertEqual(locked_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("Too many failed login attempts", str(locked_response.data["detail"]))
+
+    @override_settings(RECAPTCHA_VERIFY_ENABLED=True)
+    def test_login_requires_captcha_when_verification_is_enabled(self):
+        response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_token", response.data)
+
+    def test_successful_login_resets_failed_attempt_counter(self):
+        first_failed_response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "wrong-password"},
+            format="json",
+        )
+        self.assertEqual(first_failed_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        successful_response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+        self.assertEqual(successful_response.status_code, status.HTTP_200_OK)
+
+        for _ in range(5):
+            response = self.client.post(
+                "/api/auth/token/",
+                {"username": "approved_user", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        locked_response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+        self.assertEqual(locked_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    def test_google_login_respects_existing_password_lockout(self, mock_verify_token):
+        mock_verify_token.return_value = {
+            "email": self.approved_user.email,
+            "name": "Approved User",
+        }
+
+        for _ in range(5):
+            response = self.client.post(
+                "/api/auth/token/",
+                {"username": "approved_user", "password": "wrong-password"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        google_response = self.client.post(
+            "/api/users/auth/google/callback/",
+            {"token": "valid-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(google_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(RECAPTCHA_VERIFY_ENABLED=True)
+    def test_google_login_requires_captcha_when_verification_is_enabled(self):
+        response = self.client.post(
+            "/api/users/auth/google/callback/",
+            {"token": "valid-google-token"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_token", response.data)
+
+    @patch("google.oauth2.id_token.verify_oauth2_token")
+    def test_google_registration_ignores_admin_role_request(self, mock_verify_token):
+        mock_verify_token.return_value = {
+            "email": "google-operator@example.com",
+            "name": "Google Operator",
+        }
+
+        response = self.client.post(
+            "/api/users/auth/google/callback/",
+            {
+                "token": "valid-google-token",
+                "role": "admin",
+                "is_register": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["user"]["role"], "tmc_operator")
+        self.assertEqual(response.data["user"]["status"], "pending")
+
+        created_user = User.objects.get(email="google-operator@example.com")
+        self.assertFalse(created_user.is_staff)
+        self.assertEqual(created_user.profile.role, "tmc_operator")
+
+    @override_settings(RECAPTCHA_VERIFY_ENABLED=True)
+    def test_registration_requires_captcha_when_verification_is_enabled(self):
+        response = self.client.post(
+            "/api/users/",
+            {
+                "username": "new_user",
+                "email": "new@example.com",
+                "password": "password123",
+                "password_confirm": "password123",
+                "first_name": "New",
+                "last_name": "User",
+                "role": "tmc_operator",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_token", response.data)
+
+    def test_registration_rejects_existing_email_case_insensitively(self):
+        response = self.client.post(
+            "/api/users/",
+            {
+                "username": "new_user",
+                "email": "APPROVED@EXAMPLE.COM",
+                "password": "password123",
+                "password_confirm": "password123",
+                "first_name": "New",
+                "last_name": "User",
+                "role": "tmc_operator",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+        self.assertEqual(
+            User.objects.filter(email__iexact="approved@example.com").count(),
+            1,
+        )
 
 
 class RolePermissionTests(APITestCase):
@@ -117,22 +279,76 @@ class RolePermissionTests(APITestCase):
         )
         SystemSettings.get_settings()
 
-    def test_is_admin_allows_admin_only_and_protects_exports(self):
+    def test_is_admin_allows_admin_only(self):
         permission = IsAdmin()
-        request = self.factory.get("/api/violations/export/")
+        request = self.factory.get("/api/users/pending/")
         request.user = self.admin_user
         self.assertTrue(permission.has_permission(request, None))
 
         request.user = self.operator_user
         self.assertFalse(permission.has_permission(request, None))
 
+    def test_export_permissions_require_opt_in_for_operator(self):
         self.client.force_authenticate(user=self.operator_user)
         response = self.client.get("/api/violations/export/?export_format=csv")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_export_reports": True,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+
+        response = self.client.get("/api/violations/export/?export_format=csv")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.get("/api/violations/export/?export_format=csv")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_admin_can_patch_operator_permissions_and_ignore_unknown_keys(self):
+        self.client.force_authenticate(user=self.operator_user)
+        response = self.client.patch(
+            f"/api/users/{self.operator_user.id}/permissions/",
+            {"can_export_reports": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.patch(
+            f"/api/users/{self.operator_user.id}/permissions/",
+            {"can_export_reports": True, "unknown_key": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["can_export_reports"])
+        self.assertNotIn("unknown_key", response.data)
+
+        self.operator_user.profile.refresh_from_db()
+        self.assertTrue(self.operator_user.profile.permissions["can_export_reports"])
+
+    def test_user_list_and_me_include_permissions(self):
+        self.client.force_authenticate(user=self.admin_user)
+        list_response = self.client.get("/api/users/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        payload = list_response.data if isinstance(list_response.data, list) else list_response.data.get("results", [])
+        operator_payload = next(item for item in payload if item["id"] == self.operator_user.id)
+        self.assertEqual(
+            operator_payload["permissions"],
+            get_default_operator_permissions(),
+        )
+
+        operator_client = APIClient()
+        self.operator_user.refresh_from_db()
+        operator_client.force_authenticate(user=self.operator_user)
+        me_response = operator_client.get("/api/users/me/")
+        self.assertEqual(
+            me_response.status_code,
+            status.HTTP_200_OK,
+            getattr(me_response, "data", getattr(me_response, "content", b"")),
+        )
+        self.assertEqual(me_response.data["permissions"], get_default_operator_permissions())
 
     def test_is_operator_allows_operator_only(self):
         permission = IsOperator()
@@ -297,3 +513,33 @@ class AdminNotificationTests(APITestCase):
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(AdminNotification.objects.filter(id=notification.id).exists())
+
+    def test_admin_notification_scope_filters_alerts_and_activity(self):
+        AdminNotification.objects.create(
+            actor=self.operator_user,
+            violation=self.violation,
+            notification_type='violation_action',
+            title='Operator updated a violation action',
+            message='Operator changed a violation.',
+        )
+        AdminNotification.objects.create(
+            actor=self.operator_user,
+            violation=self.violation,
+            notification_type='evidence_view',
+            title='Evidence image viewed',
+            message='Operator viewed evidence.',
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        alert_response = self.client.get('/api/users/admin-notifications/')
+        self.assertEqual(alert_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(alert_response.data), 1)
+        self.assertEqual(alert_response.data[0]['notification_type'], 'violation_action')
+
+        activity_response = self.client.get('/api/users/admin-notifications/', {'scope': 'activity'})
+        self.assertEqual(activity_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(activity_response.data), 2)
+        self.assertEqual(
+            {entry['notification_type'] for entry in activity_response.data},
+            {'violation_action', 'evidence_view'},
+        )

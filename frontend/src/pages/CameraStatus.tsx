@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { Camera, Wifi, WifiOff, Activity, Eye, RefreshCw } from 'lucide-react';
 import { camerasService, type Camera as CameraType } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
@@ -9,22 +10,30 @@ import { useToast } from '@/hooks/use-toast';
 
 const CameraStatus = () => {
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
   const [cameras, setCameras] = useState<CameraType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedCamera, setSelectedCamera] = useState<CameraType | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [violationCounts, setViolationCounts] = useState<Record<number, number>>({});
+  const canAccessViolationData =
+    hasPermission('can_view_violations') || hasPermission('can_view_reports');
 
 
   useEffect(() => {
     loadCameras();
     const interval = setInterval(loadCameras, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [canAccessViolationData]);
 
 
   const fetchViolationCounts = async (cameraList: CameraType[]) => {
+    if (!canAccessViolationData) {
+      setViolationCounts({});
+      return;
+    }
+
     const counts: Record<number, number> = {};
     const today = new Date().toISOString().split('T')[0];
 

@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import AdminNotification, UserProfile
+from .models import AdminNotification, DEFAULT_OPERATOR_PERMISSIONS, UserProfile, get_default_operator_permissions
 from .permissions import IsAdmin, IsApprovedUser, is_admin_user
 from .serializers import (
     AdminNotificationSerializer,
@@ -19,6 +19,30 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
+    @staticmethod
+    def _build_user_payload(user):
+        profile = getattr(user, "profile", None)
+        role = profile.role if profile else ("admin" if is_admin_user(user) else "tmc_operator")
+        status_value = profile.status if profile else "approved"
+        permissions = (
+            profile.get_effective_permissions()
+            if profile and hasattr(profile, "get_effective_permissions")
+            else (get_default_operator_permissions() if role == "tmc_operator" else {})
+        )
+        payload = UserSerializer(user).data
+        payload.update(
+            {
+                "role": role,
+                "status": status_value,
+                "permissions": permissions,
+            }
+        )
+        if isinstance(payload.get("profile"), dict):
+            payload["profile"]["role"] = role
+            payload["profile"]["status"] = status_value
+            payload["profile"]["permissions"] = permissions
+        return payload
+
     def get_queryset(self):
         user = self.request.user
         if not user or not user.is_authenticated:
@@ -28,9 +52,10 @@ class UserViewSet(viewsets.ModelViewSet):
         return User.objects.filter(id=user.id)
 
     def get_permissions(self):
+        request_path = self.request.path.rstrip("/")
         if self.action == "create":
             return [AllowAny()]
-        if self.action in ["me", "update_me", "change_password"]:
+        if self.action in ["me", "update_me", "change_password"] or request_path.endswith("/users/me") or request_path.endswith("/users/change-password"):
             return [IsApprovedUser()]
         return [IsAdmin()]
 
@@ -41,27 +66,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def me(self, request):
-        try:
-            profile = UserProfile.objects.get(user=request.user)
-            return Response({
-                "id": request.user.id,
-                "username": request.user.username,
-                "email": request.user.email,
-                "first_name": request.user.first_name,
-                "last_name": request.user.last_name,
-                "role": profile.role,
-                "status": profile.status,
-            })
-        except UserProfile.DoesNotExist:
-            return Response({
-                "id": request.user.id,
-                "username": request.user.username,
-                "email": request.user.email,
-                "first_name": request.user.first_name,
-                "last_name": request.user.last_name,
-                "role": "admin" if is_admin_user(request.user) else "tmc_operator",
-                "status": "approved",
-            })
+        return Response(self._build_user_payload(request.user))
 
     @action(detail=False, methods=["get"], permission_classes=[IsAdmin])
     def pending(self, request):
@@ -102,7 +107,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="create-operator", permission_classes=[IsAdmin])
     def create_operator(self, request):
         name = request.data.get("name", "").strip()
-        email = request.data.get("email", "").strip()
+        email = request.data.get("email", "").strip().lower()
         password = request.data.get("password", "").strip()
         requested_role = request.data.get("role", "tmc_operator").strip()
         min_length = max(1, SystemSettings.get_settings().password_min_length)
@@ -122,7 +127,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if User.objects.filter(email=email).exists():
+        if User.objects.filter(email__iexact=email).exists():
             return Response(
                 {"error": "A user with this email already exists"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -156,6 +161,7 @@ class UserViewSet(viewsets.ModelViewSet):
             defaults={
                 "role": requested_role,
                 "status": "approved",
+                "permissions": get_default_operator_permissions() if requested_role == "tmc_operator" else {},
                 "approved_by": request.user,
                 "approved_at": timezone.now(),
             },
@@ -165,6 +171,39 @@ class UserViewSet(viewsets.ModelViewSet):
             {"detail": f"{requested_role.capitalize()} '{username}' created successfully."},
             status=status.HTTP_201_CREATED,
         )
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="permissions",
+        url_name="permissions",
+        permission_classes=[IsAdmin],
+    )
+    def permissions(self, request, pk=None):
+        user = self.get_object()
+        profile = getattr(user, "profile", None)
+
+        if not profile:
+            return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if profile.role != "tmc_operator":
+            return Response(
+                {"error": "Permissions can only be updated for TMC Operators."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(request.data, dict):
+            return Response({"error": "A permission object is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_permissions = profile.get_effective_permissions()
+        for key, value in request.data.items():
+            if key in DEFAULT_OPERATOR_PERMISSIONS:
+                updated_permissions[key] = bool(value)
+
+        profile.permissions = updated_permissions
+        profile.save(update_fields=["permissions"])
+
+        return Response(profile.get_effective_permissions())
 
     @action(detail=False, methods=["patch"], url_path="me")
     def update_me(self, request):
@@ -178,11 +217,20 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="admin-notifications", permission_classes=[IsAdmin])
     def admin_notifications(self, request):
         unread_only = str(request.query_params.get("unread_only", "")).lower() in {"1", "true", "yes"}
+        scope = str(request.query_params.get("scope", "alerts")).lower()
         queryset = AdminNotification.objects.select_related(
             "actor",
             "actor__profile",
             "violation",
         )
+        if scope == "activity":
+            queryset = queryset.filter(
+                notification_type__in=AdminNotification.get_activity_notification_types()
+            )
+        else:
+            queryset = queryset.filter(
+                notification_type__in=AdminNotification.get_alert_notification_types()
+            )
         if unread_only:
             queryset = queryset.filter(is_read=False)
 
@@ -208,7 +256,17 @@ class UserViewSet(viewsets.ModelViewSet):
         permission_classes=[IsAdmin],
     )
     def mark_all_admin_notifications_read(self, request):
-        updated = AdminNotification.objects.filter(is_read=False).update(is_read=True)
+        scope = str(request.query_params.get("scope", "alerts")).lower()
+        queryset = AdminNotification.objects.filter(is_read=False)
+        if scope == "activity":
+            queryset = queryset.filter(
+                notification_type__in=AdminNotification.get_activity_notification_types()
+            )
+        else:
+            queryset = queryset.filter(
+                notification_type__in=AdminNotification.get_alert_notification_types()
+            )
+        updated = queryset.update(is_read=True)
         return Response({"detail": f"{updated} notification(s) marked as read."})
 
     @action(

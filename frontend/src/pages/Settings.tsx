@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -9,11 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, History } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { API_BASE } from '@/config';
 import apiClient from '@/services/api';
+import { usersService } from '@/services/users';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import { normalizePermissions, PERMISSION_TOGGLE_ITEMS, type PermissionKey } from '@/lib/permissions';
 
 function getAuthHeaders() {
   // Support both storage keys: 'accessToken' (used elsewhere) and 'access_token'
@@ -27,6 +31,7 @@ const Settings = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { currentUser, isAdmin, refreshCurrentUser } = usePermissions();
 
   // Persist selected tab in the URL query param `tab` so refresh keeps the same tab
   const initialTab = searchParams.get('tab') || 'profile';
@@ -37,8 +42,6 @@ const Settings = () => {
     if (qp !== activeTab) setActiveTab(qp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [showAddOperator, setShowAddOperator] = useState(false);
   const [newOperator, setNewOperator] = useState({ name: '', email: '', password: '', role: 'tmc_operator' });
   const [savingSection, setSavingSection] = useState<string | null>(null);
@@ -64,13 +67,14 @@ const Settings = () => {
   const [notificationSettings, setNotificationSettings] = useState(() => {
     try {
       const saved = localStorage.getItem('notificationSettings');
-      return saved ? JSON.parse(saved) : {
-        email_notifications: true,
-        alert_email: 'admin@saferide.ai',
-        critical_alert_escalation: true,
+      const parsed = saved ? JSON.parse(saved) : {};
+      return {
+        live_violation_popups: parsed.live_violation_popups ?? true,
+        notification_sound: parsed.notification_sound ?? false,
+        auto_hide_ms: parsed.auto_hide_ms ?? 5000,
       };
     } catch {
-      return { email_notifications: true, alert_email: 'admin@saferide.ai', critical_alert_escalation: true };
+      return { live_violation_popups: true, notification_sound: false, auto_hide_ms: 5000 };
     }
   });
 
@@ -89,28 +93,69 @@ const Settings = () => {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  const [expandedPermissionUserId, setExpandedPermissionUserId] = useState<number | null>(null);
+  const [updatingPermissionStates, setUpdatingPermissionStates] = useState<Record<string, boolean>>({});
 
   // Pending Registrations state
   const [showPending, setShowPending] = useState(false);
   const [pendingList, setPendingList] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [processingId, setProcessingId] = useState<number | null>(null);
+  const activityNotifications = useAdminNotifications('activity');
 
   useEffect(() => {
-    const user = localStorage.getItem('currentUser');
-    if (user) {
-      const userData = JSON.parse(user);
-      setCurrentUser(userData);
-      setIsAdmin(userData.role === 'admin');
+    if (currentUser) {
       loadSystemSettings();
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (activeTab === 'detection') {
       loadSystemSettings();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'users' || activeTab === 'activity')) {
+      setActiveTab('profile');
+      setSearchParams({ tab: 'profile' });
+    }
+  }, [activeTab, isAdmin, setSearchParams]);
+
+  const formatActivityTime = (value: string) => {
+    if (!value) return 'Unknown time';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString('en-PH', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const activityLog = isAdmin ? activityNotifications.notifications : [];
+
+  const syncUserPermissions = (userId: number, permissions: Record<string, boolean>) => {
+    setUsersList((prev) =>
+      prev.map((user) =>
+        user.id === userId
+          ? {
+              ...user,
+              permissions,
+              profile: {
+                ...user.profile,
+                permissions,
+              },
+            }
+          : user
+      )
+    );
+  };
+
+  const getPermissionsForUser = (user: any) =>
+    normalizePermissions(user?.permissions || user?.profile?.permissions);
 
   const loadSystemSettings = async () => {
     try {
@@ -134,11 +179,8 @@ const Settings = () => {
   const loadUsers = async () => {
     setLoadingUsers(true);
     try {
-      const resp = await fetch(`${API_BASE}/users/`, { headers: getAuthHeaders() });
-      if (!resp.ok) throw new Error(await resp.text());
-      const data = await resp.json();
-      // DRF may return paginated {results:[]} or a plain array
-      setUsersList(Array.isArray(data) ? data : (data.results ?? []));
+      const data = await usersService.getUsers();
+      setUsersList(data);
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message ?? 'Could not load users.', variant: 'destructive' });
     } finally {
@@ -150,6 +192,51 @@ const Settings = () => {
     const next = !showManageUsers;
     setShowManageUsers(next);
     if (next && usersList.length === 0) loadUsers();
+  };
+
+  const handlePermissionToggle = async (
+    userId: number,
+    permissionKey: PermissionKey,
+    nextValue: boolean
+  ) => {
+    const userRecord = usersList.find((user) => user.id === userId);
+    if (!userRecord) {
+      return;
+    }
+
+    const previousPermissions = getPermissionsForUser(userRecord);
+    const nextPermissions = {
+      ...previousPermissions,
+      [permissionKey]: nextValue,
+    };
+    const requestKey = `${userId}:${permissionKey}`;
+
+    syncUserPermissions(userId, nextPermissions);
+    setUpdatingPermissionStates((prev) => ({ ...prev, [requestKey]: true }));
+
+    try {
+      const updatedPermissions = await usersService.updatePermissions(userId, {
+        [permissionKey]: nextValue,
+      });
+      syncUserPermissions(userId, updatedPermissions);
+      toast({
+        title: 'Permission Updated',
+        description: 'Operator permissions were saved successfully.',
+      });
+    } catch (err: any) {
+      syncUserPermissions(userId, previousPermissions);
+      toast({
+        title: 'Permission Update Failed',
+        description: err?.message ?? 'Could not save operator permissions.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingPermissionStates((prev) => {
+        const next = { ...prev };
+        delete next[requestKey];
+        return next;
+      });
+    }
   };
 
   // ── Pending Registrations helpers ─────────────────────────────────────────────
@@ -230,6 +317,7 @@ const Settings = () => {
           body: JSON.stringify({ first_name, last_name, email }),
         });
         if (!resp.ok) throw new Error(await resp.text());
+        await refreshCurrentUser();
       }
 
       if (section === 'Password') {
@@ -325,6 +413,9 @@ const Settings = () => {
       });
       setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
       setShowAddOperator(false);
+      if (showManageUsers) {
+        loadUsers();
+      }
     } catch (err: any) {
       toast({
         title: 'Error',
@@ -351,7 +442,7 @@ const Settings = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v: string) => { setActiveTab(v); setSearchParams({ tab: v }); }} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-7">
           <TabsTrigger value="profile" className="gap-2">
             <User className="w-4 h-4" />
             Profile
@@ -372,6 +463,12 @@ const Settings = () => {
             <Monitor className="w-4 h-4" />
             Detection
           </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="activity" className="gap-2">
+              <History className="w-4 h-4" />
+              Activity Log
+            </TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="users" className="gap-2">
               <Users className="w-4 h-4" />
@@ -478,49 +575,74 @@ const Settings = () => {
         <TabsContent value="notifications" className="space-y-6">
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle>Global Notification Settings</CardTitle>
-              <CardDescription>Configure system-wide alert destinations</CardDescription>
+              <CardTitle>Notification Preferences</CardTitle>
+              <CardDescription>Configure the in-app alerts used in the bell, popups, and activity flow</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-4">
 
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="email-notif">Email Notifications</Label>
-                    <p className="app-hint-text">Enable email alerts for violations</p>
+                    <Label htmlFor="live-violation-popups">Live Violation Popups</Label>
+                    <p className="app-hint-text">Show a popup when a new violation is recorded</p>
                   </div>
                   <Switch
-                    id="email-notif"
-                    checked={notificationSettings.email_notifications}
-                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, email_notifications: val }))}
+                    id="live-violation-popups"
+                    checked={notificationSettings.live_violation_popups}
+                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, live_violation_popups: val }))}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="notification-sound">Notification Sound</Label>
+                    <p className="app-hint-text">Play a short alert tone together with the live popup</p>
+                  </div>
+                  <Switch
+                    id="notification-sound"
+                    checked={notificationSettings.notification_sound}
+                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, notification_sound: val }))}
                   />
                 </div>
 
                 <Separator />
 
                 <div className="space-y-2">
-                  <Label htmlFor="admin-email">System Alert Email</Label>
-                  <Input
-                    id="admin-email"
-                    type="email"
-                    placeholder="admin@saferide.ai"
-                    value={notificationSettings.alert_email}
-                    onChange={(e) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, alert_email: e.target.value }))}
-                  />
-                  <p className="app-hint-text">Email address that receives system alerts</p>
+                  <Label htmlFor="auto-hide">Popup Auto-hide Duration</Label>
+                  <Select
+                    value={String(notificationSettings.auto_hide_ms)}
+                    onValueChange={(value) =>
+                      setNotificationSettings((p: typeof notificationSettings) => ({
+                        ...p,
+                        auto_hide_ms: Number(value),
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="auto-hide">
+                      <SelectValue placeholder="Select duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="3000">3 seconds</SelectItem>
+                      <SelectItem value="5000">5 seconds</SelectItem>
+                      <SelectItem value="8000">8 seconds</SelectItem>
+                      <SelectItem value="12000">12 seconds</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="app-hint-text">Controls how long the live violation popup stays visible</p>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="escalation">Critical Alert Escalation</Label>
-                    <p className="app-hint-text">Send critical alerts to all admins</p>
-                  </div>
-                  <Switch
-                    id="escalation"
-                    checked={notificationSettings.critical_alert_escalation}
-                    onCheckedChange={(val: boolean) => setNotificationSettings((p: typeof notificationSettings) => ({ ...p, critical_alert_escalation: val }))}
-                  />
-                </div>
+                <Separator />
+
+                <Alert className="bg-muted/40">
+                  <Bell className="h-4 w-4" />
+                  <AlertDescription>
+                    {isAdmin
+                      ? 'Admin bell notifications and the Activity Log will continue recording operator review actions automatically.'
+                      : 'Violation records will still appear in your notification list even if popup alerts are turned off.'}
+                  </AlertDescription>
+                </Alert>
 
               </div>
 
@@ -885,6 +1007,124 @@ const Settings = () => {
           </Card>
         </TabsContent>
 
+        {isAdmin && (
+          <TabsContent value="activity" className="space-y-6">
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="flex items-center gap-3">
+                    <History className="w-5 h-5 text-primary" />
+                    <div>
+                      <CardTitle>Activity Log</CardTitle>
+                      <CardDescription>
+                        Review plate searches, evidence views, exports, and violation review actions performed in the system.
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="h-6 px-2">
+                      {activityLog.length} Entries
+                    </Badge>
+                    <Badge
+                      variant={activityNotifications.unreadCount > 0 ? 'destructive' : 'secondary'}
+                      className="h-6 px-2"
+                    >
+                      {activityNotifications.unreadCount} Unread
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={activityNotifications.markAllAsRead}
+                      disabled={activityNotifications.loading || activityNotifications.unreadCount === 0}
+                    >
+                      Mark All Read
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {activityNotifications.loading && activityLog.length === 0 ? (
+                  <div className="flex justify-center py-10">
+                    <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
+                  </div>
+                ) : activityLog.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-10 text-center">
+                    <History className="h-8 w-8 text-muted-foreground/50" />
+                    <p className="app-body-text">No activity has been recorded yet.</p>
+                    <p className="app-hint-text">
+                      Searches, evidence views, exports, and review actions will appear here for admin tracking.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full">
+                      <thead className="bg-muted/40">
+                        <tr className="border-b border-border">
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">User</th>
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">Action</th>
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">Violation</th>
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">Status</th>
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">Date & Time</th>
+                          <th className="px-4 py-3 text-left text-[13px] font-medium text-muted-foreground">Controls</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activityLog.map((notification) => (
+                          <tr key={notification.id} className="border-b border-border/60 align-top last:border-0">
+                            <td className="px-4 py-3">
+                              <p className="app-body-text font-medium text-foreground">
+                                {notification.actor_name || 'Unknown user'}
+                              </p>
+                              <p className="app-hint-text">
+                                {notification.actor_role || 'System User'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-[13px] font-medium text-foreground">
+                                {notification.title}
+                              </p>
+                              <p className="app-hint-text max-w-md">
+                                {notification.message}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="app-body-text font-medium text-foreground">
+                                {notification.violation_id ? `#${notification.violation_id}` : 'N/A'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={notification.is_read ? 'secondary' : 'destructive'}>
+                                {notification.is_read ? 'Read' : 'Unread'}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="app-body-text text-foreground">
+                                {formatActivityTime(notification.created_at)}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                disabled={notification.is_read}
+                                onClick={() => activityNotifications.markAsRead(notification.id)}
+                              >
+                                {notification.is_read ? 'Read' : 'Mark Read'}
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
         {/* Users Management - Admin Only */}
         {isAdmin && (
           <TabsContent value="users" className="space-y-6">
@@ -958,52 +1198,121 @@ const Settings = () => {
                           <tbody>
                             {usersList.map((u) => {
                               const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username;
-                              const role = u.profile?.role ?? 'tmc_operator';
-                              const accStatus = u.profile?.status ?? 'approved';
+                              const role = u.profile?.role ?? u.role ?? 'tmc_operator';
+                              const accStatus = u.profile?.status ?? u.status ?? 'approved';
                               const isCurrentUser = currentUser?.id === u.id;
                               const isAdminUser = role === 'admin';
+                              const isOperatorUser = role === 'tmc_operator';
+                              const isPermissionRowOpen = expandedPermissionUserId === u.id;
+                              const operatorPermissions = getPermissionsForUser(u);
                               return (
-                                <tr key={u.id} className="border-b border-border/50 last:border-0">
-                                  <td className="py-2 pr-3">
-                                    <p className="font-medium">{fullName}</p>
-                                    <p className="app-hint-text">@{u.username}</p>
-                                  </td>
-                                  <td className="py-2 pr-3 text-foreground">{u.email || 'N/A'}</td>
-                                  <td className="py-2 pr-3">
-                                    <Badge variant={isAdminUser ? 'default' : 'secondary'}>
-                                      {isAdminUser ? 'Admin' : 'TMC Operator'}
-                                    </Badge>
-                                  </td>
-                                  <td className="py-2 pr-3">
-                                    <Badge
-                                      variant={
-                                        accStatus === 'approved' ? 'default'
-                                          : accStatus === 'pending' ? 'secondary'
-                                            : 'destructive'
-                                      }
-                                    >
-                                      {accStatus.charAt(0).toUpperCase() + accStatus.slice(1)}
-                                    </Badge>
-                                  </td>
-                                  <td className="py-2">
-                                    {isCurrentUser || isAdminUser ? (
-                                      <span className="app-hint-text italic">
-                                        {isCurrentUser ? 'You' : 'Protected'}
-                                      </span>
-                                    ) : (
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                        disabled={deletingUserId === u.id}
-                                        onClick={() => handleDeleteUser(u.id, fullName)}
-                                        title={`Delete ${fullName}`}
+                                <Fragment key={u.id}>
+                                  <tr className="border-b border-border/50 align-top">
+                                    <td className="py-2 pr-3">
+                                      <p className="font-medium">{fullName}</p>
+                                      <p className="app-hint-text">@{u.username}</p>
+                                    </td>
+                                    <td className="py-2 pr-3 text-foreground">{u.email || 'N/A'}</td>
+                                    <td className="py-2 pr-3">
+                                      <Badge variant={isAdminUser ? 'default' : 'secondary'}>
+                                        {isAdminUser ? 'Admin' : 'TMC Operator'}
+                                      </Badge>
+                                    </td>
+                                    <td className="py-2 pr-3">
+                                      <Badge
+                                        variant={
+                                          accStatus === 'approved' ? 'default'
+                                            : accStatus === 'pending' ? 'secondary'
+                                              : 'destructive'
+                                        }
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </Button>
-                                    )}
-                                  </td>
-                                </tr>
+                                        {accStatus.charAt(0).toUpperCase() + accStatus.slice(1)}
+                                      </Badge>
+                                    </td>
+                                    <td className="py-2">
+                                      {isCurrentUser || isAdminUser ? (
+                                        <span className="app-hint-text italic">
+                                          {isCurrentUser ? 'You' : 'Protected'}
+                                        </span>
+                                      ) : (
+                                        <div className="flex items-center gap-1">
+                                          {isOperatorUser && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="h-8 px-2 text-[12px]"
+                                              onClick={() =>
+                                                setExpandedPermissionUserId((prev) =>
+                                                  prev === u.id ? null : u.id
+                                                )
+                                              }
+                                            >
+                                              Permissions
+                                              {isPermissionRowOpen ? (
+                                                <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                                              ) : (
+                                                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                                              )}
+                                            </Button>
+                                          )}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                            disabled={deletingUserId === u.id}
+                                            onClick={() => handleDeleteUser(u.id, fullName)}
+                                            title={`Delete ${fullName}`}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                  {isOperatorUser && isPermissionRowOpen && (
+                                    <tr className="border-b border-border/50 bg-card/70">
+                                      <td colSpan={5} className="px-4 py-4">
+                                        <div className="space-y-4 rounded-lg border border-border bg-background px-4 py-4">
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                              <p className="text-[12px] font-medium text-[#6B7280]">
+                                                Operator permissions
+                                              </p>
+                                              <p className="app-hint-text mt-1">
+                                                Toggle exactly what this operator can access.
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <div className="grid gap-3 md:grid-cols-2">
+                                            {PERMISSION_TOGGLE_ITEMS.map((permission) => {
+                                              const requestKey = `${u.id}:${permission.key}`;
+                                              const isUpdating = Boolean(updatingPermissionStates[requestKey]);
+                                              return (
+                                                <div
+                                                  key={permission.key}
+                                                  className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-3"
+                                                >
+                                                  <p className="text-[13px] font-normal text-[#1A1A2E]">
+                                                    {permission.label}
+                                                  </p>
+                                                  <Switch
+                                                    checked={operatorPermissions[permission.key]}
+                                                    disabled={isUpdating}
+                                                    onCheckedChange={(checked) =>
+                                                      handlePermissionToggle(u.id, permission.key, checked)
+                                                    }
+                                                    className="data-[state=checked]:!bg-[#1D9E75] data-[state=unchecked]:!bg-[#E4E6ED]"
+                                                    aria-label={permission.label}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
                               );
                             })}
                           </tbody>

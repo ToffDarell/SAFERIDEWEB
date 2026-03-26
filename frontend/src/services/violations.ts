@@ -11,6 +11,7 @@ export interface Violation {
   classification: 'no_helmet' | 'helmet' | 'nutshell' | 'license_plate';
   plate_number: string | null;
   evidence_image: string | null;
+  has_evidence_image: boolean;
   bounding_box: any;
   detected_objects: any;
   processed_at: string;
@@ -65,6 +66,13 @@ export const violationsService = {
   // Get single violation
   async getViolation(id: number) {
     const response = await apiClient.get(`/violations/${id}/`);
+    return response.data;
+  },
+
+  async getEvidenceBlob(id: number): Promise<Blob> {
+    const response = await apiClient.get(`/violations/${id}/evidence/`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 

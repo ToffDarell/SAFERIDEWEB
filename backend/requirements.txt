@@ -1,3 +1,5 @@
 djangorestframework-api-key==3.1.0
 google-auth==2.27.0
 opencv-python==4.8.1.78
+openpyxl==3.1.5
+Pillow==12.1.1

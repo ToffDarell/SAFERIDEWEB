@@ -1,11 +1,15 @@
 import csv
 import io
+import mimetypes
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,12 +20,19 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import landscape, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+    Image as RLImage, SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
     HRFlowable, KeepTogether,
 )
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics import renderPDF
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils.units import pixels_to_EMU
 
 from .models import Violation
 from .serializers import (
@@ -30,7 +41,14 @@ from .serializers import (
     ViolationWeeklyChartSerializer,
 )
 from users.models import AdminNotification
-from users.permissions import IsAdmin, IsYoloService
+from users.permissions import (
+    CanAccessViolationRecords,
+    CanViewViolationAnalytics,
+    CanViewViolations,
+    IsYoloService,
+    has_user_permission,
+    is_admin_user,
+)
 
 
 class ViolationFilter(django_filters.FilterSet):
@@ -56,7 +74,7 @@ class ViolationViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         date_filter = self.request.query_params.get('date')
         location = self.request.query_params.get('location')
-        search = self.request.query_params.get('search')
+        search = (self.request.query_params.get('search') or '').strip()
         status = self.request.query_params.get('status')
 
         if status and not self.request.query_params.get('detection_status'):
@@ -80,20 +98,32 @@ class ViolationViewSet(viewsets.ModelViewSet):
             )
 
         if search:
-            qs = qs.filter(
-                Q(plate_number__icontains=search) |
-                Q(camera__name__icontains=search) |
-                Q(camera__location__icontains=search)
-            )
+            if not is_admin_user(self.request.user):
+                if len(search) != 3:
+                    return qs.none()
+            qs = qs.filter(plate_number__icontains=search)
+            if not getattr(self.request, "_plate_search_activity_logged", False):
+                AdminNotification.create_for_plate_search(
+                    actor=self.request.user,
+                    search_term=search,
+                )
+                self.request._plate_search_activity_logged = True
 
         return qs
 
     def get_permissions(self):
         if self.action == 'create':
             return [IsYoloService()]
+        if self.action == 'list':
+            return [CanAccessViolationRecords()]
+        if self.action in ['retrieve', 'evidence', 'update', 'partial_update']:
+            return [CanViewViolations()]
         return [IsAuthenticated()]
 
     def perform_update(self, serializer):
+        if not has_user_permission(self.request.user, "can_update_violation_status"):
+            raise PermissionDenied("You do not have permission to update violation status.")
+
         instance = self.get_object()
         previous_status = instance.review_status
         new_status = serializer.validated_data.get('review_status')
@@ -113,9 +143,32 @@ class ViolationViewSet(viewsets.ModelViewSet):
                 new_status=updated_violation.get_review_status_display(),
             )
 
+    @action(detail=True, methods=['get'], url_path='evidence')
+    def evidence(self, request, pk=None):
+        violation = self.get_object()
+        if not violation.evidence_image:
+            return Response({"error": "Evidence image not found."}, status=404)
+
+        AdminNotification.create_for_evidence_view(
+            actor=request.user,
+            violation=violation,
+        )
+
+        evidence_name = Path(violation.evidence_image.name).name
+        content_type, _ = mimetypes.guess_type(evidence_name)
+        response = FileResponse(
+            violation.evidence_image.open('rb'),
+            as_attachment=False,
+            filename=evidence_name,
+            content_type=content_type or 'application/octet-stream',
+        )
+        response["Cache-Control"] = "private, no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
 
 class ViolationSummaryView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanViewViolationAnalytics]
 
     def get(self, request):
         today = timezone.localdate()
@@ -184,7 +237,7 @@ class ViolationSummaryView(APIView):
 
 
 class ViolationWeeklyChartView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [CanViewViolationAnalytics]
 
     def get(self, request):
         today = timezone.localdate()
@@ -229,7 +282,12 @@ class ViolationWeeklyChartView(APIView):
 
 
 class ViolationExportView(APIView):
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _get_tmc_logo_path():
+        logo_path = Path(__file__).resolve().parents[2] / 'frontend' / 'public' / 'tmc.jpg'
+        return logo_path if logo_path.exists() else None
 
     def _get_qs(self, request):
         qs = Violation.objects.all().order_by('-detected_at')
@@ -280,15 +338,29 @@ class ViolationExportView(APIView):
         return qs
 
     def get(self, request):
-        fmt = request.query_params.get('export_format', 'csv').lower()
+        if not has_user_permission(request.user, "can_view_reports"):
+            raise PermissionDenied("You do not have permission to view reports.")
+
+        if not has_user_permission(request.user, "can_export_reports"):
+            raise PermissionDenied("You do not have permission to export reports.")
+
+        fmt = request.query_params.get('export_format', 'xlsx').lower()
         qs = self._get_qs(request)
+        AdminNotification.create_for_report_export(
+            actor=request.user,
+            export_format=fmt,
+            record_count=qs.count(),
+        )
 
         if fmt == 'pdf':
             return self._pdf(qs)
+        if fmt == 'xlsx':
+            return self._xlsx(qs)
         return self._csv(qs)
 
     def _csv(self, qs):
         now = datetime.now()
+        logo_path = self._get_tmc_logo_path()
         response = HttpResponse(content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = (
             f'attachment; filename="saferide_violations_'
@@ -298,6 +370,9 @@ class ViolationExportView(APIView):
         # BOM for Excel UTF-8 recognition
         response.write('\ufeff')
         w = csv.writer(response)
+        w.writerow(['Traffic Management Center (TMC)'])
+        if logo_path:
+            w.writerow([f'TMC Logo File: {logo_path.name}'])
 
         # ── report header rows ───────────────────────────────────
         w.writerow(['SafeRide — Violation Report'])
@@ -345,6 +420,176 @@ class ViolationExportView(APIView):
         w.writerow([])
         w.writerow([f'End of Report — {qs.count()} records exported'])
 
+        return response
+
+    def _xlsx(self, qs):
+        now = datetime.now()
+        logo_path = self._get_tmc_logo_path()
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = 'Violation Report'
+        worksheet.sheet_view.showGridLines = False
+        worksheet.freeze_panes = 'A13'
+
+        border_color = 'E2E8F0'
+        accent_color = '3B82F6'
+        brand_color = '1E293B'
+        muted_color = '64748B'
+        light_fill = 'F8FAFC'
+        header_fill = 'EEF4FF'
+        thin_side = Side(style='thin', color=border_color)
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        column_widths = {
+            'A': 8,
+            'B': 12,
+            'C': 14,
+            'D': 12,
+            'E': 18,
+            'F': 18,
+            'G': 16,
+            'H': 16,
+            'I': 15,
+            'J': 16,
+        }
+        for column, width in column_widths.items():
+            worksheet.column_dimensions[column].width = width
+
+        def _column_width_to_pixels(width):
+            # Approximate Excel column width conversion for image placement.
+            return int(width * 7 + 5) if width >= 1 else int(width * 12)
+
+        if logo_path:
+            logo = XLImage(str(logo_path))
+            max_width = 120
+            scale = max_width / logo.width
+            logo.width = max_width
+            logo.height = int(logo.height * scale)
+            header_columns = list(column_widths.keys())
+            header_width_pixels = [_column_width_to_pixels(column_widths[column]) for column in header_columns]
+            start_x_pixels = max(0, (sum(header_width_pixels) - logo.width) // 2)
+            anchor_col = 0
+            remaining_offset = start_x_pixels
+            while anchor_col < len(header_width_pixels) - 1 and remaining_offset >= header_width_pixels[anchor_col]:
+                remaining_offset -= header_width_pixels[anchor_col]
+                anchor_col += 1
+
+            logo.anchor = OneCellAnchor(
+                _from=AnchorMarker(
+                    col=anchor_col,
+                    row=0,
+                    colOff=pixels_to_EMU(remaining_offset),
+                    rowOff=pixels_to_EMU(4),
+                ),
+                ext=XDRPositiveSize2D(
+                    cx=pixels_to_EMU(logo.width),
+                    cy=pixels_to_EMU(logo.height),
+                ),
+            )
+            worksheet.add_image(logo)
+
+        worksheet.row_dimensions[1].height = 70
+        worksheet.row_dimensions[5].height = 22
+        worksheet.row_dimensions[6].height = 26
+        worksheet.row_dimensions[7].height = 20
+        worksheet.row_dimensions[8].height = 20
+
+        worksheet.merge_cells('A5:J5')
+        worksheet['A5'] = 'Traffic Management Center (TMC)'
+        worksheet['A5'].font = Font(name='Calibri', size=12, bold=True, color=accent_color)
+        worksheet['A5'].alignment = Alignment(horizontal='center', vertical='center')
+
+        worksheet.merge_cells('A6:J6')
+        worksheet['A6'] = 'SafeRide Violation Report'
+        worksheet['A6'].font = Font(name='Calibri', size=18, bold=True, color=brand_color)
+        worksheet['A6'].alignment = Alignment(horizontal='center', vertical='center')
+
+        worksheet.merge_cells('A7:J7')
+        worksheet['A7'] = f'Generated: {now.strftime("%B %d, %Y %I:%M %p")}'
+        worksheet['A7'].font = Font(name='Calibri', size=10, color=muted_color)
+        worksheet['A7'].alignment = Alignment(horizontal='center', vertical='center')
+
+        worksheet.merge_cells('A8:J8')
+        worksheet['A8'] = f'Total Records: {qs.count()}'
+        worksheet['A8'].font = Font(name='Calibri', size=10, color=muted_color)
+        worksheet['A8'].alignment = Alignment(horizontal='center', vertical='center')
+
+        violations_count = qs.filter(detection_status='violation').count()
+        reviewed_count = qs.filter(review_status='reviewed').count()
+        resolved_count = qs.filter(review_status='resolved').count()
+        pending_count = (
+            qs.filter(review_status='pending').count()
+            + qs.filter(review_status__isnull=True).count()
+        )
+
+        worksheet['A10'] = 'Summary'
+        worksheet['A10'].font = Font(name='Calibri', size=11, bold=True, color=brand_color)
+
+        summary_headers = ['Violations', 'Reviewed', 'Resolved', 'Pending']
+        summary_values = [violations_count, reviewed_count, resolved_count, pending_count]
+        for index, (label, value) in enumerate(zip(summary_headers, summary_values), start=1):
+            cell = worksheet.cell(row=11, column=index, value=label)
+            cell.font = Font(name='Calibri', size=10, bold=True, color=brand_color)
+            cell.alignment = Alignment(horizontal='center')
+            cell.fill = PatternFill(fill_type='solid', fgColor=header_fill)
+            cell.border = thin_border
+
+            value_cell = worksheet.cell(row=12, column=index, value=value)
+            value_cell.font = Font(name='Calibri', size=11, bold=True, color=brand_color)
+            value_cell.alignment = Alignment(horizontal='center')
+            value_cell.fill = PatternFill(fill_type='solid', fgColor=light_fill)
+            value_cell.border = thin_border
+
+        headers = [
+            '#', 'ID', 'Date', 'Time', 'Camera', 'Classification',
+            'Plate Number', 'Detection Status', 'Confidence (%)', 'Review Status',
+        ]
+
+        header_row = 14
+        for column_index, header in enumerate(headers, start=1):
+            cell = worksheet.cell(row=header_row, column=column_index, value=header)
+            cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.fill = PatternFill(fill_type='solid', fgColor=brand_color)
+            cell.border = thin_border
+
+        for row_index, violation in enumerate(qs, start=15):
+            values = [
+                row_index - 14,
+                violation.id,
+                violation.detected_at.strftime('%Y-%m-%d'),
+                violation.detected_at.strftime('%H:%M:%S'),
+                violation.camera.name if violation.camera else 'Unknown',
+                violation.get_classification_display(),
+                violation.plate_number or 'N/A',
+                violation.get_detection_status_display(),
+                float(f'{violation.confidence_score * 100:.1f}'),
+                violation.get_review_status_display(),
+            ]
+
+            for column_index, value in enumerate(values, start=1):
+                cell = worksheet.cell(row=row_index, column=column_index, value=value)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = thin_border
+                if row_index % 2 == 0:
+                    cell.fill = PatternFill(fill_type='solid', fgColor=light_fill)
+
+            worksheet.cell(row=row_index, column=9).number_format = '0.0"%"'
+
+        worksheet.auto_filter.ref = f'A{header_row}:J{max(header_row, qs.count() + 14)}'
+
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="saferide_violations_'
+            f'{now.strftime("%Y%m%d_%H%M%S")}.xlsx"'
+        )
         return response
 
     def _pdf(self, qs):
@@ -399,6 +644,7 @@ class ViolationExportView(APIView):
         )
 
         elements = []
+        logo_path = self._get_tmc_logo_path()
 
         # ── page footer (page number) ───────────────────────────
         def _footer(canvas, doc):
@@ -423,6 +669,28 @@ class ViolationExportView(APIView):
         now = datetime.now()
         total = qs.count()
 
+        if logo_path:
+            logo_reader = ImageReader(str(logo_path))
+            logo_w, logo_h = logo_reader.getSize()
+            display_width = 1.35 * inch
+            display_height = display_width * (logo_h / logo_w)
+            logo = RLImage(str(logo_path), width=display_width, height=display_height)
+            logo.hAlign = 'CENTER'
+            elements.append(logo)
+            elements.append(Spacer(1, 6))
+
+        elements.append(Paragraph(
+            'Traffic Management Center (TMC)',
+            ParagraphStyle(
+                'RTmc',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=11,
+                textColor=ACCENT,
+                alignment=TA_CENTER,
+                spaceAfter=8,
+            )
+        ))
         elements.append(Paragraph('SafeRide', s_title))
         elements.append(Paragraph('Violation Report', ParagraphStyle(
             'RSubtitle2', parent=styles['Normal'],

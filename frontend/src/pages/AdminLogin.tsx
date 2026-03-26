@@ -5,18 +5,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Camera, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { authService } from '@/services/auth';
 import { googleAuthService } from '@/services/googleAuth';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import ReCAPTCHA from 'react-google-recaptcha';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { setCurrentUser } = usePermissions();
   const [isLoading, setIsLoading] = useState(false);
   const recaptchaRef = useRef<ReCAPTCHA>(null);
 
@@ -50,7 +52,10 @@ const AdminLogin = () => {
     setIsLoading(true);
 
     try {
-      await authService.login(credentials);
+      await authService.login({
+        ...credentials,
+        captcha_token: recaptchaValue,
+      });
       
       // Get user info to detect role automatically
       const userInfo = await authService.getCurrentUser();
@@ -92,10 +97,10 @@ const AdminLogin = () => {
       
       // Store user info with detected role
       const fullName = `${userInfo.first_name || ''} ${userInfo.last_name || ''}`.trim();
-      localStorage.setItem('currentUser', JSON.stringify({
+      setCurrentUser({
+        ...userInfo,
         name: fullName || userInfo.username || credentials.username,
-        role: userInfo.role, // Automatically use the role from database
-      }));
+      });
 
       const roleName = userInfo.role === 'admin' ? 'Administrator' : 'TMC Operator';
       
@@ -127,12 +132,28 @@ const AdminLogin = () => {
       return;
     }
 
+    const recaptchaValue = recaptchaRef.current?.getValue();
+    if (!recaptchaValue) {
+      toast({
+        title: 'Verification Required',
+        description: 'Please complete the reCAPTCHA verification',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const result = await googleAuthService.loginWithGoogle(credentialResponse.credential);
+      const result = await googleAuthService.loginWithGoogle(
+        credentialResponse.credential,
+        undefined,
+        false,
+        recaptchaValue
+      );
       
       if (result.success) {
+        setCurrentUser(result.user);
         // Check account status
         if (result.user.status === 'pending') {
           authService.logout();
@@ -173,18 +194,21 @@ const AdminLogin = () => {
             description: 'Your account is awaiting admin approval.',
             variant: 'destructive',
           });
+          recaptchaRef.current?.reset();
         } else if (accountStatus === 'rejected') {
           toast({
             title: 'Account Rejected',
             description: 'Your account registration was rejected. Please contact support.',
             variant: 'destructive',
           });
+          recaptchaRef.current?.reset();
         } else {
           toast({
             title: 'Google Login Failed',
             description: result.error || 'An error occurred during Google login',
             variant: 'destructive',
           });
+          recaptchaRef.current?.reset();
         }
       }
     } catch (error: any) {
@@ -193,6 +217,7 @@ const AdminLogin = () => {
         description: error.message || 'An error occurred during Google login',
         variant: 'destructive',
       });
+      recaptchaRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -210,8 +235,12 @@ const AdminLogin = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-            <Camera className="w-10 h-10 text-primary-foreground" />
+          <div className="mb-4 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-primary/10 shadow-lg">
+            <img
+              src="/tmc.jpg"
+              alt="Traffic Management Center logo"
+              className="h-full w-full rounded-full object-cover"
+            />
           </div>
           <h1 className="app-page-heading">SafeRide AI</h1>
           <p className="app-body-text mt-2 text-muted-foreground">Helmet Violation Detection System</p>

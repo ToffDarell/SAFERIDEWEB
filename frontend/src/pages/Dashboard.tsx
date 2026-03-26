@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { usePermissions } from '@/contexts/PermissionsContext';
 import { useToast } from '@/hooks/use-toast';
 import { camerasService, type Camera as CameraType } from '@/services/cameras';
 import {
@@ -71,6 +72,7 @@ const CHART_COLORS = [
 
 const Dashboard = () => {
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
   const [summary, setSummary] = useState<ViolationSummary>(EMPTY_SUMMARY);
   const [weeklyData, setWeeklyData] = useState<WeeklyChartItem[]>([]);
   const [violationTypes, setViolationTypes] = useState<ViolationTypeItem[]>([]);
@@ -79,8 +81,20 @@ const Dashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
+  const canViewLiveMonitor = hasPermission('can_view_live_monitor');
+  const canViewCameraStatus = hasPermission('can_view_cameras') || canViewLiveMonitor;
+  const canAccessViolationAnalytics =
+    hasPermission('can_view_violations') || hasPermission('can_view_reports');
+  const canAccessCameraData = canViewCameraStatus;
 
   const loadDashboardData = async () => {
+    if (!canAccessViolationAnalytics) {
+      setSummary(EMPTY_SUMMARY);
+      setWeeklyData([]);
+      setViolationTypes([]);
+      return;
+    }
+
     try {
       const [summaryData, weeklyChart] = await Promise.all([
         violationsService.getSummary(),
@@ -112,6 +126,12 @@ const Dashboard = () => {
   };
 
   const loadCameras = async (showError = false) => {
+    if (!canAccessCameraData) {
+      setCameras([]);
+      setSelectedCamera(null);
+      return;
+    }
+
     try {
       const data = await camerasService.getCameras();
       const cameraList: CameraType[] = (data.results || data || []).sort(
@@ -157,7 +177,7 @@ const Dashboard = () => {
     }, 10000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [canAccessCameraData, canAccessViolationAnalytics]);
 
   useEffect(() => {
     if (selectedCamera) {
@@ -257,8 +277,9 @@ const Dashboard = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-4">
+      {canViewCameraStatus && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className={canViewLiveMonitor ? 'lg:col-span-4' : 'lg:col-span-12'}>
           <Card className="h-full bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
               <CardTitle className="app-section-title">Camera Status</CardTitle>
@@ -308,75 +329,78 @@ const Dashboard = () => {
               </div>
             </CardContent>
           </Card>
-        </div>
-
-        <div className="lg:col-span-8">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div>
-              <h3 className="app-section-title">
-                Live Monitor - {selectedCamera?.name || 'Select a camera'}
-              </h3>
-              <p className="app-body-text text-muted-foreground">
-                Real-time feed based on the selected camera status.
-              </p>
-            </div>
-            {selectedCamera && (
-              <Button variant="outline" size="sm" onClick={handleRefreshStream}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh
-              </Button>
-            )}
           </div>
 
-          <Card className="relative min-h-[400px] overflow-hidden border-border bg-[#1B1B2B]">
-            {!selectedCamera ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
-                <CameraIcon className="mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="app-body-text text-muted-foreground">Select a camera to view the feed</p>
-              </div>
-            ) : selectedCamera.status !== 'active' ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
-                <WifiOff className="mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="app-body-text text-muted-foreground">Camera is currently offline</p>
-              </div>
-            ) : !selectedCamera.stream_url || streamError ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
-                <AlertTriangle className="mb-4 h-12 w-12 text-destructive" />
-                <p className="app-body-text text-foreground">Stream unavailable</p>
-                <Button variant="outline" className="mt-4" onClick={handleRefreshStream}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Retry connection
-                </Button>
-              </div>
-            ) : (
-              <div className="relative h-full min-h-[400px] w-full bg-[#1B1B2B]">
-                <div className="absolute left-4 top-4 z-10 rounded-full border border-border/60 bg-white/10 px-4 py-2 backdrop-blur-md">
-                  <span className="feed-overlay-text text-[13px] font-medium">
-                    {selectedCamera.name}
-                  </span>
-                  <span className="feed-overlay-muted px-2 text-[11px]">|</span>
-                  <span className="feed-overlay-muted text-[11px]">
-                    {selectedCamera.location || 'No location set'}
-                  </span>
+          {canViewLiveMonitor && (
+            <div className="lg:col-span-8">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="app-section-title">
+                    Live Monitor - {selectedCamera?.name || 'Select a camera'}
+                  </h3>
+                  <p className="app-body-text text-muted-foreground">
+                    Real-time feed based on the selected camera status.
+                  </p>
                 </div>
-                <div className="absolute right-4 top-4 z-10 rounded-full border border-border/60 bg-white/10 px-3 py-1.5 backdrop-blur-md">
-                  <span className="feed-overlay-text app-badge-text flex items-center gap-2 tracking-wider">
-                    <span className="h-2.5 w-2.5 rounded-full bg-destructive animate-pulse" />
-                    REC
-                  </span>
-                </div>
-                <img
-                  key={streamKey}
-                  src={selectedCamera.stream_url}
-                  alt={`Live stream from ${selectedCamera.name}`}
-                  className="h-full min-h-[400px] w-full object-cover"
-                  onError={() => setStreamError(true)}
-                />
+                {selectedCamera && (
+                  <Button variant="outline" size="sm" onClick={handleRefreshStream}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Refresh
+                  </Button>
+                )}
               </div>
-            )}
-          </Card>
+
+              <Card className="relative min-h-[400px] overflow-hidden border-border bg-[#1B1B2B]">
+                {!selectedCamera ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
+                    <CameraIcon className="mb-4 h-12 w-12 text-muted-foreground" />
+                    <p className="app-body-text text-muted-foreground">Select a camera to view the feed</p>
+                  </div>
+                ) : selectedCamera.status !== 'active' ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
+                    <WifiOff className="mb-4 h-12 w-12 text-muted-foreground" />
+                    <p className="app-body-text text-muted-foreground">Camera is currently offline</p>
+                  </div>
+                ) : !selectedCamera.stream_url || streamError ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/20">
+                    <AlertTriangle className="mb-4 h-12 w-12 text-destructive" />
+                    <p className="app-body-text text-foreground">Stream unavailable</p>
+                    <Button variant="outline" className="mt-4" onClick={handleRefreshStream}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Retry connection
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative h-full min-h-[400px] w-full bg-[#1B1B2B]">
+                    <div className="absolute left-4 top-4 z-10 rounded-full border border-border/60 bg-white/10 px-4 py-2 backdrop-blur-md">
+                      <span className="feed-overlay-text text-[13px] font-medium">
+                        {selectedCamera.name}
+                      </span>
+                      <span className="feed-overlay-muted px-2 text-[11px]">|</span>
+                      <span className="feed-overlay-muted text-[11px]">
+                        {selectedCamera.location || 'No location set'}
+                      </span>
+                    </div>
+                    <div className="absolute right-4 top-4 z-10 rounded-full border border-border/60 bg-white/10 px-3 py-1.5 backdrop-blur-md">
+                      <span className="feed-overlay-text app-badge-text flex items-center gap-2 tracking-wider">
+                        <span className="h-2.5 w-2.5 rounded-full bg-destructive animate-pulse" />
+                        REC
+                      </span>
+                    </div>
+                    <img
+                      key={streamKey}
+                      src={selectedCamera.stream_url}
+                      alt={`Live stream from ${selectedCamera.name}`}
+                      className="h-full min-h-[400px] w-full object-cover"
+                      onError={() => setStreamError(true)}
+                    />
+                  </div>
+                )}
+              </Card>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="bg-card border-border">

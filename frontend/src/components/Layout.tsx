@@ -1,5 +1,5 @@
-import { Link, useLocation, Outlet } from 'react-router-dom';
-import { Camera, LayoutDashboard, AlertTriangle, Settings, LogOut, Bell, FileText, Menu, MonitorPlay, Trash2 } from 'lucide-react';
+import { useLocation, Outlet } from 'react-router-dom';
+import { Bell, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -9,13 +9,14 @@ import { authService } from '@/services/auth';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { useLocalNotifications } from '@/hooks/useLocalNotifications';
 import { useViolationNotifications } from '@/hooks/use-notifications';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import { getNavigationLabel, Sidebar } from '@/components/layout/Sidebar';
 
 export const Layout = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const isAdmin = currentUser.role === 'admin';
+  const { isAdmin, clearCurrentUser } = usePermissions();
   const adminNotifications = useAdminNotifications();
   const operatorNotifications = useLocalNotifications();
   const notifications = isAdmin ? adminNotifications.notifications : operatorNotifications.notifications;
@@ -30,119 +31,19 @@ export const Layout = () => {
   
   const handleLogout = () => {
     authService.logout();
-    localStorage.removeItem('currentUser');
+    clearCurrentUser();
     setShowLogoutDialog(false);
     window.location.href = '/';
   };
-  
-  const isActive = (path: string) => location.pathname === path;
-  
-  const navItems = [
-    { path: '/live-monitor', icon: MonitorPlay, label: 'Live Monitor' },
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/violations', icon: AlertTriangle, label: 'Violations' },
-    { path: '/reports', icon: FileText, label: 'Reports' },
-    { path: '/cameras', icon: Camera, label: 'Camera Status' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
-  ];
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} flex shrink-0 flex-col border-r border-border bg-card transition-all duration-300`}>
-        {/* Sidebar Header */}
-        <div className="border-b border-border p-4">
-          <div className="flex items-center justify-between">
-            {sidebarOpen ? (
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5">
-                  <Camera className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h1 className="text-[13px] font-medium text-foreground">SafeRide AI</h1>
-                  <p className="app-hint-text">Helmet Detection</p>
-                </div>
-              </div>
-            ) : (
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-primary/20 bg-gradient-to-br from-primary/15 to-primary/5">
-                <Camera className="h-5 w-5 text-primary" />
-              </div>
-            )}
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={!sidebarOpen ? 'hidden' : ''}
-            >
-              <Menu className="w-4 h-4" />
-            </Button>
-          </div>
-          {!sidebarOpen && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="mt-2 w-full"
-            >
-              <Menu className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-3">
-          <div className="space-y-1">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-[13px] font-medium transition-all ${
-                  isActive(item.path)
-                    ? 'border-primary/20 bg-primary/10 text-foreground shadow-sm'
-                    : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                title={!sidebarOpen ? item.label : ''}
-              >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && <span>{item.label}</span>}
-              </Link>
-            ))}
-          </div>
-        </nav>
-
-        {/* User Section */}
-        <div className="p-3 border-t border-border">
-          {sidebarOpen ? (
-            <div className="space-y-2">
-              <div className="px-3 py-2">
-                <p className="truncate text-[13px] font-medium text-foreground">{currentUser.name || 'Admin'}</p>
-                <p className="app-hint-text truncate">
-                  {currentUser.role === 'admin' ? 'Administrator' : 'TMC Operator'}
-                </p>
-              </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setShowLogoutDialog(true)}
-                className="w-full justify-start text-muted-foreground hover:text-foreground"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                <span>Logout</span>
-              </Button>
-            </div>
-          ) : (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setShowLogoutDialog(true)}
-              className="w-full"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-      </aside>
+      <Sidebar
+        currentPath={location.pathname}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((open) => !open)}
+        onLogout={() => setShowLogoutDialog(true)}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-screen min-w-0">
@@ -151,7 +52,7 @@ export const Layout = () => {
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h2 className="app-page-heading">
-                {navItems.find(item => item.path === location.pathname)?.label || 'SafeRide AI'}
+                {getNavigationLabel(location.pathname)}
               </h2>
             </div>
             

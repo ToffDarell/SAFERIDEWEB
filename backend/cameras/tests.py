@@ -1,9 +1,11 @@
 from django.utils import timezone
+from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_api_key.models import APIKey
 
 from .models import Camera, SystemSettings
+from users.models import UserProfile, get_default_operator_permissions
 
 
 class CameraServiceAuthTests(APITestCase):
@@ -43,3 +45,79 @@ class CameraServiceAuthTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("confidence_threshold", response.data)
+
+
+class CameraReadPermissionTests(APITestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            username="admin",
+            email="admin@example.com",
+            password="password123",
+            is_staff=True,
+        )
+        UserProfile.objects.update_or_create(
+            user=self.admin_user,
+            defaults={"role": "admin", "status": "approved"},
+        )
+
+        self.operator_user = User.objects.create_user(
+            username="operator",
+            email="operator@example.com",
+            password="password123",
+        )
+        UserProfile.objects.update_or_create(
+            user=self.operator_user,
+            defaults={"role": "tmc_operator", "status": "approved"},
+        )
+
+        self.camera = Camera.objects.create(
+            name="North Camera",
+            location="North Road",
+            stream_url="http://127.0.0.1:8081/stream",
+            status="active",
+        )
+
+    def test_operator_without_camera_related_permissions_cannot_list_cameras(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": False,
+            "can_view_live_monitor": False,
+            "can_view_reports": False,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        response = self.client.get("/api/cameras/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_operator_with_reports_permission_can_list_cameras_but_stream_is_redacted(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": False,
+            "can_view_live_monitor": False,
+            "can_view_reports": True,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        response = self.client.get("/api/cameras/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data if isinstance(response.data, list) else response.data.get("results", [])
+        self.assertEqual(payload[0]["stream_url"], "")
+
+    def test_operator_with_live_monitor_permission_can_access_stream_url(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": False,
+            "can_view_live_monitor": True,
+            "can_view_reports": False,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        response = self.client.get(f"/api/cameras/{self.camera.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["stream_url"], self.camera.stream_url)

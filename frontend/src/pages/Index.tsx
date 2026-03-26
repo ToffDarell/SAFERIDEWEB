@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { ConceptualFramework } from '@/components/ConceptualFramework';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Shield, Camera, Cpu, Activity, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowRight, Shield, Camera, Cpu, Activity, AlertTriangle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -10,9 +10,7 @@ const Index = () => {
 
   return (
     <div className="relative w-full min-h-screen overflow-hidden bg-background">
-      {/* Hero Section */}
       <div className="relative w-full min-h-screen flex flex-col">
-        {/* Header */}
         <div className="border-b border-border bg-card p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center justify-between">
@@ -33,7 +31,6 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Main Content */}
         <div className="flex-1 flex items-center justify-center px-4">
           <div className="max-w-4xl mx-auto text-center space-y-8">
             <div className="space-y-4">
@@ -45,7 +42,6 @@ const Index = () => {
               </p>
             </div>
 
-            {/* Feature Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12">
               <Card className="border-border bg-card p-6 shadow-sm">
                 <div className="flex flex-col items-center text-center gap-3">
@@ -90,9 +86,8 @@ const Index = () => {
               </Card>
             </div>
 
-            {/* CTA Button */}
             <div className="mt-12">
-              <Button 
+              <Button
                 size="lg"
                 onClick={() => navigate('/')}
                 className="px-8 py-6 shadow-sm"
@@ -104,7 +99,6 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Stats Section */}
         <div className="border-t border-border bg-card p-6">
           <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             <div>
@@ -126,8 +120,7 @@ const Index = () => {
           </div>
         </div>
       </div>
-      
-      {/* Conceptual Framework Section */}
+
       <div className="relative z-10 bg-background">
         <ConceptualFramework />
       </div>
