@@ -104,6 +104,8 @@ class ViolationSummaryCameraSerializer(serializers.Serializer):
 class ViolationSummarySerializer(serializers.Serializer):
     total_violations = serializers.IntegerField()
     pending_violations = serializers.IntegerField()
+    reviewed_violations = serializers.IntegerField()
+    resolved_violations = serializers.IntegerField()
     today_violations = serializers.IntegerField()
     this_week_violations = serializers.IntegerField()
     by_class = ViolationSummaryClassSerializer(many=True)

@@ -17,6 +17,17 @@ type CameraLocationOption = {
   location?: string | null;
 };
 
+type ViolationsDateFilterMode =
+  | 'all'
+  | 'today'
+  | 'week'
+  | 'month'
+  | 'specific_date'
+  | 'specific_month';
+
+const isCompleteDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const isCompleteMonth = (value: string) => /^\d{4}-\d{2}$/.test(value);
+
 const Violations = () => {
   const { toast } = useToast();
   const { currentUser, hasPermission, isAdmin, isLoading: isPermissionsLoading } = usePermissions();
@@ -34,7 +45,9 @@ const Violations = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterDate, setFilterDate] = useState('all');
+  const [filterDateMode, setFilterDateMode] = useState<ViolationsDateFilterMode>('all');
+  const [specificDate, setSpecificDate] = useState('');
+  const [specificMonth, setSpecificMonth] = useState('');
   const [filterLocation, setFilterLocation] = useState('all');
   const [filterDetectionStatus, setFilterDetectionStatus] = useState('all');
   const [filterReviewStatus, setFilterReviewStatus] = useState(defaultFilter);
@@ -79,9 +92,16 @@ const Violations = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filterDate, filterLocation, filterDetectionStatus, filterReviewStatus]);
+  }, [searchQuery, filterDateMode, specificDate, specificMonth, filterLocation, filterDetectionStatus, filterReviewStatus]);
 
   useEffect(() => {
+    if (filterDateMode === 'specific_date' && specificDate && !isCompleteDate(specificDate)) {
+      return;
+    }
+    if (filterDateMode === 'specific_month' && specificMonth && !isCompleteMonth(specificMonth)) {
+      return;
+    }
+
     loadViolations(!hasLoadedOnce);
 
     const interval = setInterval(async () => {
@@ -94,7 +114,9 @@ const Violations = () => {
     currentPage,
     itemsPerPage,
     searchQuery,
-    filterDate,
+    filterDateMode,
+    specificDate,
+    specificMonth,
     filterLocation,
     filterDetectionStatus,
     filterReviewStatus,
@@ -120,7 +142,15 @@ const Violations = () => {
       const params = new URLSearchParams();
       params.append("export_format", format);
       if (searchQuery.trim()) params.append("search", searchQuery.trim());
-      if (filterDate !== "all") params.append("date", filterDate);
+      if (filterDateMode !== 'all' && filterDateMode !== 'specific_date' && filterDateMode !== 'specific_month') {
+        params.append('date', filterDateMode);
+      }
+      if (filterDateMode === 'specific_date' && isCompleteDate(specificDate)) {
+        params.append('specific_date', specificDate);
+      }
+      if (filterDateMode === 'specific_month' && isCompleteMonth(specificMonth)) {
+        params.append('specific_month', specificMonth);
+      }
       if (filterLocation !== "all") params.append("location", filterLocation);
       if (filterDetectionStatus !== "all") params.append("detection_status", filterDetectionStatus);
       if (filterReviewStatus !== "all") params.append("review_status", filterReviewStatus);
@@ -186,7 +216,15 @@ const Violations = () => {
       };
 
       if (trimmedSearchQuery) params.search = trimmedSearchQuery;
-      if (filterDate !== 'all') params.date = filterDate;
+      if (filterDateMode !== 'all' && filterDateMode !== 'specific_date' && filterDateMode !== 'specific_month') {
+        params.date = filterDateMode;
+      }
+      if (filterDateMode === 'specific_date' && isCompleteDate(specificDate)) {
+        params.specific_date = specificDate;
+      }
+      if (filterDateMode === 'specific_month' && isCompleteMonth(specificMonth)) {
+        params.specific_month = specificMonth;
+      }
       if (filterLocation !== 'all') params.location = filterLocation;
       if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
       if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
@@ -318,6 +356,16 @@ const Violations = () => {
 
   const filteredViolations = violations;
 
+  const handleDateModeChange = (value: ViolationsDateFilterMode) => {
+    setFilterDateMode(value);
+    if (value !== 'specific_date') {
+      setSpecificDate('');
+    }
+    if (value !== 'specific_month') {
+      setSpecificMonth('');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -375,7 +423,9 @@ const Violations = () => {
               className="h-8 px-3 text-[12px]"
               onClick={() => {
                 setSearchQuery('');
-                setFilterDate('all');
+                setFilterDateMode('all');
+                setSpecificDate('');
+                setSpecificMonth('');
                 setFilterLocation('all');
                 setFilterDetectionStatus('all');
                 setFilterReviewStatus('all');
@@ -384,7 +434,7 @@ const Violations = () => {
               Clear
             </Button>
           </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
             <div className="space-y-2">
               <label className="app-label-text">Plate Number</label>
               <div className="relative">
@@ -410,8 +460,8 @@ const Violations = () => {
               </p>
             </div>
             <div className="space-y-2">
-              <label className="app-label-text">Date</label>
-              <Select value={filterDate} onValueChange={setFilterDate}>
+              <label className="app-label-text">Date Filter</label>
+              <Select value={filterDateMode} onValueChange={(value) => handleDateModeChange(value as ViolationsDateFilterMode)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Time" />
                 </SelectTrigger>
@@ -420,8 +470,29 @@ const Violations = () => {
                   <SelectItem value="today">Today</SelectItem>
                   <SelectItem value="week">Past Week</SelectItem>
                   <SelectItem value="month">Past Month</SelectItem>
+                  <SelectItem value="specific_date">Specific Date</SelectItem>
+                  <SelectItem value="specific_month">Specific Month</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="app-label-text">
+                {filterDateMode === 'specific_month' ? 'Month' : 'Date'}
+              </label>
+              {filterDateMode === 'specific_month' ? (
+                <Input
+                  type="month"
+                  value={specificMonth}
+                  onChange={(event) => setSpecificMonth(event.target.value)}
+                />
+              ) : (
+                <Input
+                  type="date"
+                  value={specificDate}
+                  disabled={filterDateMode !== 'specific_date'}
+                  onChange={(event) => setSpecificDate(event.target.value)}
+                />
+              )}
             </div>
             <div className="space-y-2">
               <label className="app-label-text">Location</label>

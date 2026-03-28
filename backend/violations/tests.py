@@ -147,6 +147,54 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(counts_by_date[six_days_ago], 1)
         self.assertNotIn(eight_days_ago, counts_by_date)
 
+    def test_violation_list_supports_specific_date_filter(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            "/api/violations/",
+            {"specific_date": timezone.localdate().isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+
+    def test_summary_supports_specific_month_filter(self):
+        Violation.objects.create(
+            camera=self.camera_a,
+            detected_at=timezone.now() - timedelta(days=40),
+            detection_status="violation",
+            confidence_score=0.74,
+            classification="helmet",
+            review_status="pending",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            "/api/violations/summary/",
+            {"specific_month": timezone.localdate().strftime("%Y-%m")},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_violations"], 5)
+
+    def test_weekly_chart_supports_custom_date_range(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            "/api/violations/weekly-chart/",
+            {
+                "date_from": (timezone.localdate() - timedelta(days=2)).isoformat(),
+                "date_to": timezone.localdate().isoformat(),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+
+        counts_by_date = {item["date"]: item["count"] for item in response.data}
+        self.assertEqual(counts_by_date[timezone.localdate().isoformat()], 2)
+        self.assertEqual(counts_by_date[(timezone.localdate() - timedelta(days=2)).isoformat()], 1)
+
     def test_operator_violation_detail_returns_full_plate_and_protected_evidence_url(self):
         self.client.force_authenticate(user=self.user)
 

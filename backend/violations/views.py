@@ -1,6 +1,7 @@
 import csv
 import io
 import mimetypes
+from calendar import monthrange
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -51,6 +52,127 @@ from users.permissions import (
 )
 
 
+def _parse_query_date(value, fmt):
+    if not value:
+        return None
+
+    try:
+        return datetime.strptime(value, fmt).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_date_filters(queryset, params):
+    today = timezone.localdate()
+    date_filter = params.get('date')
+    specific_date = _parse_query_date(params.get('specific_date'), '%Y-%m-%d')
+    specific_month = params.get('specific_month')
+    year = params.get('year')
+    date_from = _parse_query_date(params.get('date_from'), '%Y-%m-%d')
+    date_to = _parse_query_date(params.get('date_to'), '%Y-%m-%d')
+
+    if year:
+        try:
+            queryset = queryset.filter(detected_at__year=int(year))
+        except (TypeError, ValueError):
+            pass
+
+    if date_filter == 'today':
+        queryset = queryset.filter(detected_at__date=today)
+    elif date_filter == 'week':
+        queryset = queryset.filter(detected_at__date__gte=today - timedelta(days=6))
+    elif date_filter == 'month':
+        queryset = queryset.filter(detected_at__date__gte=today.replace(day=1))
+    elif date_filter:
+        parsed_date = _parse_query_date(date_filter, '%Y-%m-%d')
+        if parsed_date:
+            queryset = queryset.filter(detected_at__date=parsed_date)
+
+    if specific_date:
+        queryset = queryset.filter(detected_at__date=specific_date)
+
+    if specific_month:
+        parsed_month = _parse_query_date(f'{specific_month}-01', '%Y-%m-%d')
+        if parsed_month:
+            queryset = queryset.filter(
+                detected_at__year=parsed_month.year,
+                detected_at__month=parsed_month.month,
+            )
+
+    if date_from:
+        queryset = queryset.filter(detected_at__date__gte=date_from)
+    if date_to:
+        queryset = queryset.filter(detected_at__date__lte=date_to)
+
+    return queryset
+
+
+def _apply_violation_filters(queryset, params):
+    queryset = _apply_date_filters(queryset, params)
+
+    location = params.get('location') or params.get('camera')
+    if location:
+        if str(location).isdigit():
+            queryset = queryset.filter(camera_id=location)
+        else:
+            queryset = queryset.filter(
+                Q(camera__name__icontains=location) |
+                Q(camera__location__icontains=location)
+            )
+
+    status = params.get('detection_status') or params.get('status')
+    if status:
+        queryset = queryset.filter(detection_status=status)
+
+    review_status = params.get('review_status')
+    if review_status:
+        queryset = queryset.filter(review_status=review_status)
+
+    classification = params.get('classification')
+    if classification:
+        queryset = queryset.filter(classification=classification)
+
+    return queryset
+
+
+def _resolve_chart_date_range(params):
+    today = timezone.localdate()
+    date_filter = params.get('date')
+    specific_date = _parse_query_date(params.get('specific_date'), '%Y-%m-%d')
+    specific_month = params.get('specific_month')
+    date_from = _parse_query_date(params.get('date_from'), '%Y-%m-%d')
+    date_to = _parse_query_date(params.get('date_to'), '%Y-%m-%d')
+
+    if date_from or date_to:
+        start_date = date_from or date_to
+        end_date = date_to or date_from
+        if start_date and end_date and start_date > end_date:
+            start_date, end_date = end_date, start_date
+        return start_date, end_date
+
+    if specific_date:
+        return specific_date, specific_date
+
+    if specific_month:
+        parsed_month = _parse_query_date(f'{specific_month}-01', '%Y-%m-%d')
+        if parsed_month:
+            last_day = monthrange(parsed_month.year, parsed_month.month)[1]
+            return parsed_month, parsed_month.replace(day=last_day)
+
+    if date_filter == 'today':
+        return today, today
+    if date_filter == 'week':
+        return today - timedelta(days=6), today
+    if date_filter == 'month':
+        return today.replace(day=1), today
+
+    parsed_date = _parse_query_date(date_filter, '%Y-%m-%d')
+    if parsed_date:
+        return parsed_date, parsed_date
+
+    return today - timedelta(days=6), today
+
+
 class ViolationFilter(django_filters.FilterSet):
     detected_at__gte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='gte')
     detected_at__lte = django_filters.IsoDateTimeFilter(field_name='detected_at', lookup_expr='lte')
@@ -72,30 +194,8 @@ class ViolationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        date_filter = self.request.query_params.get('date')
-        location = self.request.query_params.get('location')
         search = (self.request.query_params.get('search') or '').strip()
-        status = self.request.query_params.get('status')
-
-        if status and not self.request.query_params.get('detection_status'):
-            qs = qs.filter(detection_status=status)
-
-        if date_filter in ['today', 'week', 'month']:
-            from django.utils import timezone
-            from datetime import timedelta
-            now = timezone.localdate()
-            if date_filter == 'today':
-                qs = qs.filter(detected_at__date=now)
-            elif date_filter == 'week':
-                qs = qs.filter(detected_at__date__gte=now - timedelta(days=6))
-            elif date_filter == 'month':
-                qs = qs.filter(detected_at__date__gte=now.replace(day=1))
-
-        if location:
-            qs = qs.filter(
-                Q(camera__name__icontains=location) |
-                Q(camera__location__icontains=location)
-            )
+        qs = _apply_violation_filters(qs, self.request.query_params)
 
         if search:
             if not is_admin_user(self.request.user):
@@ -173,39 +273,10 @@ class ViolationSummaryView(APIView):
     def get(self, request):
         today = timezone.localdate()
         week_start = today - timedelta(days=6)
-        queryset = Violation.objects.select_related("camera")
-
-        # Apply filters
-        date = request.query_params.get('date')
-        location = request.query_params.get('location')
-        status = request.query_params.get('status')
-        review_status = request.query_params.get('review_status')
-        year = request.query_params.get('year')
-
-        if date:
-            if date == 'today':
-                queryset = queryset.filter(detected_at__date=today)
-            elif date == 'week':
-                queryset = queryset.filter(detected_at__date__gte=week_start)
-            elif date == 'month':
-                month_start = today.replace(day=1)
-                queryset = queryset.filter(detected_at__date__gte=month_start)
-            else:
-                queryset = queryset.filter(detected_at__date=date)
-        if location:
-            if location.isdigit():
-                queryset = queryset.filter(camera_id=location)
-            else:
-                queryset = queryset.filter(
-                    Q(camera__name__icontains=location) |
-                    Q(camera__location__icontains=location)
-                )
-        if status:
-            queryset = queryset.filter(detection_status=status)
-        if review_status:
-            queryset = queryset.filter(review_status=review_status)
-        if year:
-            queryset = queryset.filter(detected_at__year=year)
+        queryset = _apply_violation_filters(
+            Violation.objects.select_related("camera"),
+            request.query_params,
+        )
 
         class_counts = {
             row["classification"]: row["count"]
@@ -216,6 +287,8 @@ class ViolationSummaryView(APIView):
         summary = {
             "total_violations": queryset.count(),
             "pending_violations": queryset.filter(review_status="pending").count(),
+            "reviewed_violations": queryset.filter(review_status="reviewed").count(),
+            "resolved_violations": queryset.filter(review_status="resolved").count(),
             "today_violations": queryset.filter(detected_at__date=today).count(),
             "this_week_violations": queryset.filter(detected_at__date__range=(week_start, today)).count(),
             "by_class": [
@@ -243,28 +316,10 @@ class ViolationWeeklyChartView(APIView):
     permission_classes = [CanViewViolationAnalytics]
 
     def get(self, request):
-        today = timezone.localdate()
-        start_date = today - timedelta(days=6)
-
-        queryset = Violation.objects.filter(detected_at__date__range=(start_date, today))
-
-        # Apply filters
-        location = request.query_params.get('location')
-        status = request.query_params.get('status')
-        review_status = request.query_params.get('review_status')
-
-        if location:
-            if location.isdigit():
-                queryset = queryset.filter(camera_id=location)
-            else:
-                queryset = queryset.filter(
-                    Q(camera__name__icontains=location) |
-                    Q(camera__location__icontains=location)
-                )
-        if status:
-            queryset = queryset.filter(detection_status=status)
-        if review_status:
-            queryset = queryset.filter(review_status=review_status)
+        start_date, end_date = _resolve_chart_date_range(request.query_params)
+        queryset = _apply_violation_filters(Violation.objects.all(), request.query_params).filter(
+            detected_at__date__range=(start_date, end_date)
+        )
 
         counts_by_day = {
             row["detected_at__date"]: row["count"]
@@ -280,7 +335,7 @@ class ViolationWeeklyChartView(APIView):
                 "date": start_date + timedelta(days=offset),
                 "count": counts_by_day.get(start_date + timedelta(days=offset), 0),
             }
-            for offset in range(7)
+            for offset in range((end_date - start_date).days + 1)
         ]
 
         serializer = ViolationWeeklyChartSerializer(payload, many=True)
@@ -296,59 +351,16 @@ class ViolationExportView(APIView):
         return logo_path if logo_path.exists() else None
 
     def _get_qs(self, request):
-        qs = Violation.objects.all().order_by('-detected_at')
-        
-        # Apply filters
-        date = request.query_params.get('date')
-        date_from = request.query_params.get('date_from')
-        date_to = request.query_params.get('date_to')
-        year = request.query_params.get('year')
-        status = request.query_params.get('detection_status') or request.query_params.get('status')
-        review_status = request.query_params.get('review_status')
-        camera = request.query_params.get('camera') or request.query_params.get('location')
+        qs = _apply_violation_filters(
+            Violation.objects.all().order_by('-detected_at'),
+            request.query_params,
+        )
         search = (request.query_params.get('search') or '').strip()
-        
-        if date:
-            from django.utils import timezone
-            from datetime import timedelta
-            now = timezone.localdate()
-            if date == 'today':
-                qs = qs.filter(detected_at__date=now)
-            elif date == 'week':
-                qs = qs.filter(detected_at__date__gte=now - timedelta(days=6))
-            elif date == 'month':
-                qs = qs.filter(detected_at__date__gte=now.replace(day=1))
-            else:
-                qs = qs.filter(detected_at__date=date)
-        if year:
-            qs = qs.filter(detected_at__year=year)
-        if status:
-            qs = qs.filter(detection_status=status)
-        if review_status:
-            qs = qs.filter(review_status=review_status)
-        if camera:
-            if camera.isdigit():
-                qs = qs.filter(camera_id=camera)
-            else:
-                qs = qs.filter(
-                    Q(camera__name__icontains=camera) |
-                    Q(camera__location__icontains=camera)
-                )
+
         if search:
             if not is_admin_user(request.user) and len(search) != 3:
                 return qs.none()
             qs = qs.filter(plate_number__icontains=search)
-
-        if date_from:
-            try:
-                qs = qs.filter(detected_at__date__gte=datetime.strptime(date_from, '%Y-%m-%d').date())
-            except ValueError:
-                pass
-        if date_to:
-            try:
-                qs = qs.filter(detected_at__date__lte=datetime.strptime(date_to, '%Y-%m-%d').date())
-            except ValueError:
-                pass
         return qs
 
     def get(self, request):

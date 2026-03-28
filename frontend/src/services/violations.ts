@@ -37,6 +37,8 @@ export interface ViolationSummaryCameraItem {
 export interface ViolationSummary {
   total_violations: number;
   pending_violations: number;
+  reviewed_violations: number;
+  resolved_violations: number;
   today_violations: number;
   this_week_violations: number;
   by_class: ViolationSummaryClassItem[];

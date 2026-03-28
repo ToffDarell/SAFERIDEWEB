@@ -57,6 +57,8 @@ type ViolationTypeItem = {
 const EMPTY_SUMMARY: ViolationSummary = {
   total_violations: 0,
   pending_violations: 0,
+  reviewed_violations: 0,
+  resolved_violations: 0,
   today_violations: 0,
   this_week_violations: 0,
   by_class: [],
