@@ -3,22 +3,32 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { FileText, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { FileText, FileSpreadsheet, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { violationsService } from '@/services/violations';
+import { violationsService, type Violation } from '@/services/violations';
 import apiClient from '@/services/api';
 import { camerasService } from '@/services/cameras';
 import { usePermissions } from '@/contexts/PermissionsContext';
+
+type CameraLocationOption = {
+  location?: string | null;
+};
+
+type WeeklyDataPoint = {
+  day: string;
+  violations: number;
+  fullDate: string;
+};
 
 const Reports = () => {
   const { hasPermission } = usePermissions();
   const { toast } = useToast();
   const canExportReports = hasPermission('can_export_reports');
   
-  const [violations, setViolations] = useState<any[]>([]);
-  const [weeklyData, setWeeklyData] = useState<any[]>([]);
+  const [violations, setViolations] = useState<Violation[]>([]);
+  const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [locationOptions, setLocationOptions] = useState<string[]>([]);
 
@@ -44,7 +54,7 @@ const Reports = () => {
         const nextLocations = Array.from(
           new Set(
             cameraList
-              .map((camera: any) => camera.location?.trim())
+              .map((camera: CameraLocationOption) => camera.location?.trim())
               .filter(Boolean)
           )
         ).sort((a, b) => a.localeCompare(b));
@@ -60,7 +70,7 @@ const Reports = () => {
 
   const loadData = async () => {
     try {
-      const params: any = {};
+      const params: Record<string, string> = {};
       if (filterYear !== 'all') params.year = filterYear;
       if (filterDate !== 'all') params.date = filterDate;
       if (filterLocation !== 'all') params.location = filterLocation;
@@ -68,7 +78,7 @@ const Reports = () => {
       if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
 
       const data = await violationsService.getViolations(params);
-      const violationsData = data.results || [];
+      const violationsData: Violation[] = data.results || [];
       
       setViolations(violationsData);
       calculateWeeklyData(violationsData);
@@ -83,7 +93,7 @@ const Reports = () => {
     }
   };
 
-  const calculateWeeklyData = (violationsData: any[]) => {
+  const calculateWeeklyData = (violationsData: Violation[]) => {
     const today = new Date();
     const last7Days = [];
     
@@ -179,7 +189,7 @@ const Reports = () => {
     id: v.id_number || v.id,
     plate: v.plate_number || 'N/A',
     date: new Date(v.detected_at).toLocaleDateString(),
-    location: v.camera_name || 'Unknown',
+    location: v.camera_location || v.camera_name || 'Unknown',
     status: v.review_status
       ? v.review_status.charAt(0).toUpperCase() + v.review_status.slice(1)
       : 'Pending'
@@ -203,20 +213,28 @@ const Reports = () => {
           <h2 className="app-page-heading">Violation Reports</h2>
           <p className="app-body-text text-muted-foreground">Comprehensive violation analytics</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {canExportReports && (
-            <div className="flex items-center gap-2">
-              <Button onClick={() => handleGenerateReport('xlsx')} variant="outline">
-                <FileText className="w-4 h-4 mr-2" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={() => handleGenerateReport('xlsx')}
+                variant="outline"
+                className="h-11 rounded-xl px-4 text-sm font-semibold shadow-none"
+              >
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
                 Export Excel
               </Button>
-              <Button onClick={() => handleGenerateReport('pdf')}>
-                <FileText className="w-4 h-4 mr-2" />
+              <Button
+                type="button"
+                onClick={() => handleGenerateReport('pdf')}
+                className="h-11 rounded-xl px-4 text-sm font-semibold shadow-none"
+              >
+                <FileText className="mr-2 h-4 w-4" />
                 Export PDF
               </Button>
             </div>
           )}
-          <FileText className="w-8 h-8 text-primary" />
         </div>
       </div>
 
@@ -257,6 +275,7 @@ const Reports = () => {
                   <SelectItem value="2023">2023</SelectItem>
                   <SelectItem value="2024">2024</SelectItem>
                   <SelectItem value="2025">2025</SelectItem>
+                  <SelectItem value="2026">2026</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -353,7 +372,7 @@ const Reports = () => {
                   border: '1px solid hsl(var(--border))',
                   borderRadius: '8px'
                 }}
-                formatter={(value: any) => [`${value} violations`, 'Count']}
+                formatter={(value: number | string) => [`${value} violations`, 'Count']}
                 labelFormatter={(label, payload) => {
                   if (payload && payload[0]) {
                     return payload[0].payload.fullDate;

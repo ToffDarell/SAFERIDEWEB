@@ -1,22 +1,25 @@
 import { useLocation, Outlet } from 'react-router-dom';
-import { Bell, Trash2 } from 'lucide-react';
+import { Bell, Moon, Sun, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { authService } from '@/services/auth';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { useLocalNotifications } from '@/hooks/useLocalNotifications';
 import { useViolationNotifications } from '@/hooks/use-notifications';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { getNavigationLabel, Sidebar } from '@/components/layout/Sidebar';
+import { useTheme } from 'next-themes';
 
 export const Layout = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { isAdmin, clearCurrentUser } = usePermissions();
+  const { resolvedTheme, setTheme } = useTheme();
   const adminNotifications = useAdminNotifications();
   const operatorNotifications = useLocalNotifications();
   const notifications = isAdmin ? adminNotifications.notifications : operatorNotifications.notifications;
@@ -28,12 +31,27 @@ export const Layout = () => {
   const emptyNotificationMessage = isAdmin ? 'No admin notifications' : 'No notifications yet';
 
   useViolationNotifications();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   const handleLogout = () => {
     authService.logout();
     clearCurrentUser();
     setShowLogoutDialog(false);
     window.location.href = '/';
+  };
+
+  const isDarkMode = mounted && resolvedTheme === 'dark';
+
+  const handleThemeToggle = () => {
+    const root = document.documentElement;
+    root.classList.add('theme-transition');
+    setTheme(isDarkMode ? 'light' : 'dark');
+    window.setTimeout(() => {
+      root.classList.remove('theme-transition');
+    }, 260);
   };
 
   return (
@@ -57,6 +75,23 @@ export const Layout = () => {
             </div>
             
             <div className="flex items-center gap-4">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2 rounded-full px-3"
+                onClick={handleThemeToggle}
+                title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {isDarkMode ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">
+                  {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+                </span>
+              </Button>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="ghost" size="sm" className="relative">

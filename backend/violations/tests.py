@@ -309,6 +309,33 @@ class ViolationAnalyticsTests(APITestCase):
             ).exists()
         )
 
+    def test_export_endpoint_respects_plate_search_filter(self):
+        self.user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_reports": True,
+            "can_export_reports": True,
+        }
+        self.user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            "/api/violations/export/",
+            {"export_format": "xlsx", "search": "ABC"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        workbook = load_workbook(filename=BytesIO(response.content))
+        worksheet = workbook.active
+        self.assertEqual(worksheet["A8"].value, "Total Records: 1")
+
+        exported_plate_numbers = [
+            row[6]
+            for row in worksheet.iter_rows(min_row=15, values_only=True)
+            if row and any(value is not None for value in row)
+        ]
+        self.assertEqual(exported_plate_numbers, ["ABC1234"])
+
     def test_export_endpoint_requires_report_view_permission(self):
         self.user.profile.permissions = {
             **get_default_operator_permissions(),

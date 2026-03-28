@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, History } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, History, FileSpreadsheet } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -95,6 +95,8 @@ const Settings = () => {
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [expandedPermissionUserId, setExpandedPermissionUserId] = useState<number | null>(null);
   const [updatingPermissionStates, setUpdatingPermissionStates] = useState<Record<string, boolean>>({});
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'tmc_operator'>('all');
+  const [userDateFilter, setUserDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
 
   // Pending Registrations state
   const [showPending, setShowPending] = useState(false);
@@ -300,6 +302,101 @@ const Settings = () => {
     } finally {
       setDeletingUserId(null);
     }
+  };
+
+  const matchesUserDateFilter = (createdAt?: string | null) => {
+    if (userDateFilter === 'all') {
+      return true;
+    }
+
+    if (!createdAt) {
+      return false;
+    }
+
+    const joinedDate = new Date(createdAt);
+    if (Number.isNaN(joinedDate.getTime())) {
+      return false;
+    }
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (userDateFilter === 'today') {
+      return joinedDate >= startOfToday;
+    }
+
+    if (userDateFilter === 'week') {
+      const startOfWeek = new Date(startOfToday);
+      startOfWeek.setDate(startOfWeek.getDate() - 6);
+      return joinedDate >= startOfWeek;
+    }
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return joinedDate >= startOfMonth;
+  };
+
+  const filteredUsersList = usersList.filter((user) => {
+    const role = user.profile?.role ?? user.role ?? 'tmc_operator';
+    if (userRoleFilter !== 'all' && role !== userRoleFilter) {
+      return false;
+    }
+
+    return matchesUserDateFilter(user.profile?.created_at ?? null);
+  });
+
+  const handleExportFilteredUsers = () => {
+    if (filteredUsersList.length === 0) {
+      toast({
+        title: 'Nothing to export',
+        description: 'No admin or operator accounts match the current filters.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const headers = ['Name', 'Username', 'Email', 'Role', 'Status', 'Organization', 'Registered'];
+    const rows = filteredUsersList.map((user) => {
+      const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username;
+      const role = user.profile?.role ?? user.role ?? 'tmc_operator';
+      const status = user.profile?.status ?? user.status ?? 'approved';
+      const organization = user.profile?.organization ?? '';
+      const registered = user.profile?.created_at
+        ? new Date(user.profile.created_at).toLocaleDateString()
+        : '';
+
+      return [
+        fullName,
+        user.username ?? '',
+        user.email ?? '',
+        role === 'admin' ? 'Administrator' : 'TMC Operator',
+        status,
+        organization,
+        registered,
+      ];
+    });
+
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `saferide_users_filtered_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Export Complete',
+      description: 'Filtered admin/operator records were exported successfully.',
+    });
   };
 
   const handleSave = async (section: string) => {
@@ -1163,18 +1260,61 @@ const Settings = () => {
                 {/* ── Inline users table ── */}
                 {showManageUsers && (
                   <div className="border rounded-lg p-4 space-y-3 bg-muted/40">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[13px] font-medium text-foreground">All Users</p>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={loadUsers}
-                        disabled={loadingUsers}
-                        className="h-7 px-2"
-                      >
-                        <RefreshCw className={`w-3 h-3 mr-1 ${loadingUsers ? 'animate-spin' : ''}`} />
-                        Refresh
-                      </Button>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                      <div>
+                        <p className="text-[13px] font-medium text-foreground">All Users</p>
+                        <p className="app-hint-text mt-1">
+                          Filter admin and operator accounts before exporting.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="w-full space-y-1 sm:w-[180px]">
+                          <Label className="text-[12px] text-muted-foreground">Role</Label>
+                          <Select value={userRoleFilter} onValueChange={(value) => setUserRoleFilter(value as 'all' | 'admin' | 'tmc_operator')}>
+                            <SelectTrigger className="h-9 bg-card">
+                              <SelectValue placeholder="All Roles" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Roles</SelectItem>
+                              <SelectItem value="admin">Administrator</SelectItem>
+                              <SelectItem value="tmc_operator">TMC Operator</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-full space-y-1 sm:w-[180px]">
+                          <Label className="text-[12px] text-muted-foreground">Registered</Label>
+                          <Select value={userDateFilter} onValueChange={(value) => setUserDateFilter(value as 'all' | 'today' | 'week' | 'month')}>
+                            <SelectTrigger className="h-9 bg-card">
+                              <SelectValue placeholder="All Time" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Time</SelectItem>
+                              <SelectItem value="today">Today</SelectItem>
+                              <SelectItem value="week">Past Week</SelectItem>
+                              <SelectItem value="month">Past Month</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExportFilteredUsers}
+                          className="h-9 px-3"
+                        >
+                          <FileSpreadsheet className="mr-2 h-4 w-4" />
+                          Export
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={loadUsers}
+                          disabled={loadingUsers}
+                          className="h-9 px-3"
+                        >
+                          <RefreshCw className={`w-3 h-3 mr-1 ${loadingUsers ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </Button>
+                      </div>
                     </div>
 
                     {loadingUsers && usersList.length === 0 ? (
@@ -1183,8 +1323,14 @@ const Settings = () => {
                       </div>
                     ) : usersList.length === 0 ? (
                       <p className="app-hint-text py-4 text-center">No users found.</p>
+                    ) : filteredUsersList.length === 0 ? (
+                      <p className="app-hint-text py-4 text-center">No users match the current filters.</p>
                     ) : (
-                      <div className="overflow-x-auto">
+                      <div className="space-y-3">
+                        <p className="app-hint-text">
+                          Showing {filteredUsersList.length} of {usersList.length} user account(s).
+                        </p>
+                        <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b border-border">
@@ -1196,7 +1342,7 @@ const Settings = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {usersList.map((u) => {
+                            {filteredUsersList.map((u) => {
                               const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username;
                               const role = u.profile?.role ?? u.role ?? 'tmc_operator';
                               const accStatus = u.profile?.status ?? u.status ?? 'approved';
@@ -1317,6 +1463,7 @@ const Settings = () => {
                             })}
                           </tbody>
                         </table>
+                      </div>
                       </div>
                     )}
                   </div>

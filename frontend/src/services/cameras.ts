@@ -6,6 +6,7 @@ export interface Camera {
   location: string;
   stream_url: string;
   status: 'active' | 'inactive';
+  is_live?: boolean;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;

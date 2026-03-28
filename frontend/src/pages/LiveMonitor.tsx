@@ -66,7 +66,7 @@ const LiveMonitor = () => {
     };
 
     loadCameras();
-    const interval = setInterval(loadCameras, 10000);
+    const interval = setInterval(loadCameras, 3000);
     return () => clearInterval(interval);
   }, [toast]);
 
@@ -75,7 +75,7 @@ const LiveMonitor = () => {
       id: String(camera.id),
       name: camera.name?.trim() || '',
       location: camera.location?.trim() || '',
-      status: camera.status === 'active' ? 'online' : 'offline',
+      status: (camera.is_live ?? camera.status === 'active') ? 'online' : 'offline',
       mjpegUrl: camera.stream_url || '',
     }));
   }, [backendCameras]);
@@ -103,6 +103,18 @@ const LiveMonitor = () => {
       return monitorCameras.find((c) => c.id === cameraFilter) ?? monitorCameras[0];
     return monitorCameras.find((c) => c.id === focusedCameraId) ?? monitorCameras[0];
   }, [cameraFilter, focusedCameraId, monitorCameras]);
+
+  const monitorStatus = useMemo<'online' | 'offline'>(() => {
+    if (cameraFilter !== 'all') {
+      return filteredCameras.some((camera) => camera.status === 'online') ? 'online' : 'offline';
+    }
+
+    if (viewMode === 'focus' && focusedCamera) {
+      return focusedCamera.status;
+    }
+
+    return filteredCameras.some((camera) => camera.status === 'online') ? 'online' : 'offline';
+  }, [cameraFilter, filteredCameras, focusedCamera, viewMode]);
 
   const openFocusedView = (cameraId?: string) => {
     const next =
@@ -153,7 +165,7 @@ const LiveMonitor = () => {
               <div className="w-full space-y-2 md:w-[320px]">
                 <label className="app-label-text">Camera</label>
                 <Select value={cameraFilter} onValueChange={setCameraFilter}>
-                  <SelectTrigger className="h-[30px] rounded-md border-[#E4E6ED] bg-card text-[13px]">
+                  <SelectTrigger className="h-[30px] rounded-md border-border bg-background text-[13px] transition-colors">
                     <SelectValue placeholder="All cameras" />
                   </SelectTrigger>
                   <SelectContent>
@@ -171,10 +183,10 @@ const LiveMonitor = () => {
                 <Button
                   type="button"
                   variant="outline"
-                  className={`h-[30px] rounded-md border-[#E4E6ED] px-3 text-[13px] font-medium ${
+                  className={`h-[30px] rounded-md border px-3 text-[13px] font-medium transition-colors ${
                     viewMode === 'grid'
-                      ? 'bg-[#F5F6FA] text-foreground'
-                      : 'bg-card text-muted-foreground'
+                      ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                   onClick={() => setViewMode('grid')}
                 >
@@ -184,10 +196,10 @@ const LiveMonitor = () => {
                 <Button
                   type="button"
                   variant="outline"
-                  className={`h-[30px] rounded-md border-[#E4E6ED] px-3 text-[13px] font-medium ${
+                  className={`h-[30px] rounded-md border px-3 text-[13px] font-medium transition-colors ${
                     viewMode === 'focus'
-                      ? 'bg-[#F5F6FA] text-foreground'
-                      : 'bg-card text-muted-foreground'
+                      ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                   onClick={() => openFocusedView()}
                 >
@@ -196,9 +208,25 @@ const LiveMonitor = () => {
               </div>
             </div>
 
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#9FE1CB] bg-[#F0FBF7] px-3 py-1.5">
-              <span className="h-2 w-2 rounded-full bg-[#1D9E75]" />
-              <span className="text-[11px] font-medium text-[#1D9E75]">Live</span>
+            <div
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${
+                monitorStatus === 'online'
+                  ? 'border border-[#9FE1CB] bg-[#F0FBF7]'
+                  : 'border border-[#F3C7C3] bg-[#FEF3F2]'
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  monitorStatus === 'online' ? 'bg-[#1D9E75]' : 'bg-[#D92D20]'
+                }`}
+              />
+              <span
+                className={`text-[11px] font-medium ${
+                  monitorStatus === 'online' ? 'text-[#1D9E75]' : 'text-[#D92D20]'
+                }`}
+              >
+                {monitorStatus === 'online' ? 'Live' : 'Offline'}
+              </span>
             </div>
           </div>
         </CardContent>
@@ -254,7 +282,7 @@ const LiveMonitor = () => {
             <Button
               type="button"
               variant="outline"
-              className="h-[32px] rounded-md border-[#E4E6ED] bg-card px-3 text-[13px] font-medium text-muted-foreground"
+              className="h-[32px] rounded-md border border-border bg-background px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               onClick={() => setViewMode('grid')}
             >
               Back to all cameras

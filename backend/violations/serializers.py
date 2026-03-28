@@ -30,6 +30,7 @@ class FlexibleJSONField(serializers.JSONField):
 
 class ViolationSerializer(serializers.ModelSerializer):
     camera_name = serializers.CharField(source='camera.name', read_only=True)
+    camera_location = serializers.CharField(source='camera.location', read_only=True)
     reviewed_by_name = serializers.SerializerMethodField()
     reviewed_by_role = serializers.SerializerMethodField()
     id_number = serializers.SerializerMethodField()
@@ -40,7 +41,7 @@ class ViolationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Violation
         fields = [
-            'id', 'id_number', 'camera', 'camera_name', 'detected_at', 'detection_status',
+            'id', 'id_number', 'camera', 'camera_name', 'camera_location', 'detected_at', 'detection_status',
             'confidence_score', 'classification', 'plate_number',
             'evidence_image', 'has_evidence_image', 'bounding_box', 'detected_objects', 'processed_at',
             'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at',

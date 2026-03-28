@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.db import models
+from django.utils import timezone
 
 
 class SystemSettings(models.Model):
@@ -33,6 +36,7 @@ class SystemSettings(models.Model):
 
 
 class Camera(models.Model):
+    HEARTBEAT_TIMEOUT_SECONDS = 8
     STATUS_CHOICES = [
         ('active', 'Active'),
         ('inactive', 'Inactive'),
@@ -52,3 +56,17 @@ class Camera(models.Model):
         
     def __str__(self):
         return self.name
+
+    def is_live(self, now=None):
+        if self.status != 'active' or not self.last_seen_at:
+            return False
+
+        last_seen = self.last_seen_at
+        if timezone.is_naive(last_seen):
+            last_seen = timezone.make_aware(last_seen, timezone.get_current_timezone())
+
+        current_time = now or timezone.now()
+        return last_seen >= current_time - timedelta(seconds=self.HEARTBEAT_TIMEOUT_SECONDS)
+
+    def get_runtime_status(self, now=None):
+        return 'active' if self.is_live(now=now) else 'inactive'

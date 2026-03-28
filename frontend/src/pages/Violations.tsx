@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Search, Download, CheckCircle, Eye } from 'lucide-react';
+import { Search, FileSpreadsheet, FileText, CheckCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,6 +12,10 @@ import { violationsService, type Violation } from '@/services/violations';
 import { camerasService } from '@/services/cameras';
 import apiClient from '@/services/api';
 import { usePermissions } from '@/contexts/PermissionsContext';
+
+type CameraLocationOption = {
+  location?: string | null;
+};
 
 const Violations = () => {
   const { toast } = useToast();
@@ -59,7 +63,7 @@ const Violations = () => {
         const nextLocations = Array.from(
           new Set(
             cameraList
-              .map((camera: any) => camera.location?.trim())
+              .map((camera: CameraLocationOption) => camera.location?.trim())
               .filter(Boolean)
           )
         ).sort((a: string, b: string) => a.localeCompare(b));
@@ -176,7 +180,7 @@ const Violations = () => {
     }
 
     try {
-      const params: any = {
+      const params: Record<string, string | number> = {
         page: currentPage,
         page_size: itemsPerPage,
       };
@@ -327,16 +331,31 @@ const Violations = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="app-page-heading">Violations</h2>
           <p className="app-body-text text-muted-foreground">Detected helmet violations and plate recognition</p>
         </div>
         {canExportReports && (
-          <Button variant="outline" onClick={() => handleExport('xlsx')}>
-            <Download className="w-4 h-4" />
-            Export Excel
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-xl px-4 text-sm font-semibold shadow-none"
+              onClick={() => handleExport('xlsx')}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Export Excel
+            </Button>
+            <Button
+              type="button"
+              className="h-11 rounded-xl px-4 text-sm font-semibold shadow-none"
+              onClick={() => handleExport('pdf')}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Export PDF
+            </Button>
+          </div>
         )}
       </div>
 
@@ -487,7 +506,7 @@ const Violations = () => {
                           {violation.plate_number || 'N/A'}
                         </span>
                       </TableCell>
-                      <TableCell>{violation.camera_name || 'Unknown'}</TableCell>
+                      <TableCell>{violation.camera_location || violation.camera_name || 'Unknown'}</TableCell>
                       <TableCell>
                         <Badge 
                           className="whitespace-nowrap"

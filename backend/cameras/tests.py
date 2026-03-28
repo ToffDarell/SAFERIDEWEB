@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from django.contrib.auth.models import User
 from rest_framework import status
@@ -121,3 +123,25 @@ class CameraReadPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["stream_url"], self.camera.stream_url)
+
+    def test_camera_with_stale_heartbeat_is_serialized_as_inactive(self):
+        self.camera.last_seen_at = timezone.now() - timedelta(seconds=30)
+        self.camera.save(update_fields=["last_seen_at"])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get(f"/api/cameras/{self.camera.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "inactive")
+        self.assertFalse(response.data["is_live"])
+
+    def test_camera_with_recent_heartbeat_is_serialized_as_active(self):
+        self.camera.last_seen_at = timezone.now()
+        self.camera.save(update_fields=["last_seen_at"])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get(f"/api/cameras/{self.camera.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "active")
+        self.assertTrue(response.data["is_live"])

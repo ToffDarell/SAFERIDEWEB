@@ -26,6 +26,8 @@ class CameraSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        data['status'] = instance.get_runtime_status()
+        data['is_live'] = instance.is_live()
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         if not has_any_user_permission(user, ("can_view_cameras", "can_view_live_monitor")):

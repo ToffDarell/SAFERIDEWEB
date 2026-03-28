@@ -5,6 +5,7 @@ export interface Violation {
   id_number?: string;
   camera: number;
   camera_name: string;
+  camera_location: string;
   detected_at: string;
   detection_status: 'compliant' | 'violation';
   confidence_score: number;
@@ -12,8 +13,8 @@ export interface Violation {
   plate_number: string | null;
   evidence_image: string | null;
   has_evidence_image: boolean;
-  bounding_box: any;
-  detected_objects: any;
+  bounding_box: unknown;
+  detected_objects: unknown;
   processed_at: string;
   review_status: 'pending' | 'reviewed' | 'resolved';
   reviewed_by: number | null;
@@ -58,7 +59,7 @@ export interface ViolationFilters {
 
 export const violationsService = {
   // Get all violations with filters
-  async getViolations(params?: any) {
+  async getViolations(params?: Record<string, string | number>) {
     const response = await apiClient.get('/violations/', { params });
     return response.data;
   },

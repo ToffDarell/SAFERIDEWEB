@@ -15,6 +15,7 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+frontend/.vscode/
 .idea
 .DS_Store
 *.suo
@@ -32,8 +33,12 @@ __pycache__/
 venv/
 env/
 ENV/
+yolo_service/venv_new/
 *.db
 *.sqlite3
+
+# Generated app data
+backend/media/
 
 # Environment variables
 .env

@@ -196,7 +196,10 @@ class ViolationSummaryView(APIView):
             if location.isdigit():
                 queryset = queryset.filter(camera_id=location)
             else:
-                queryset = queryset.filter(camera__name__icontains=location)
+                queryset = queryset.filter(
+                    Q(camera__name__icontains=location) |
+                    Q(camera__location__icontains=location)
+                )
         if status:
             queryset = queryset.filter(detection_status=status)
         if review_status:
@@ -254,7 +257,10 @@ class ViolationWeeklyChartView(APIView):
             if location.isdigit():
                 queryset = queryset.filter(camera_id=location)
             else:
-                queryset = queryset.filter(camera__name__icontains=location)
+                queryset = queryset.filter(
+                    Q(camera__name__icontains=location) |
+                    Q(camera__location__icontains=location)
+                )
         if status:
             queryset = queryset.filter(detection_status=status)
         if review_status:
@@ -300,6 +306,7 @@ class ViolationExportView(APIView):
         status = request.query_params.get('detection_status') or request.query_params.get('status')
         review_status = request.query_params.get('review_status')
         camera = request.query_params.get('camera') or request.query_params.get('location')
+        search = (request.query_params.get('search') or '').strip()
         
         if date:
             from django.utils import timezone
@@ -323,7 +330,14 @@ class ViolationExportView(APIView):
             if camera.isdigit():
                 qs = qs.filter(camera_id=camera)
             else:
-                qs = qs.filter(camera__name__icontains=camera)
+                qs = qs.filter(
+                    Q(camera__name__icontains=camera) |
+                    Q(camera__location__icontains=camera)
+                )
+        if search:
+            if not is_admin_user(request.user) and len(search) != 3:
+                return qs.none()
+            qs = qs.filter(plate_number__icontains=search)
 
         if date_from:
             try:
