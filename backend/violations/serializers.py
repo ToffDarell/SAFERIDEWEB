@@ -1,10 +1,103 @@
 import ast
 import json
+import re
 
 from django.urls import reverse
 from rest_framework import serializers
 
 from .models import Violation
+
+
+PEDESTRIAN_CONTEXT_LABELS = {
+    'human',
+    'man',
+    'pedestrian',
+    'person',
+    'walker',
+    'walking',
+    'woman',
+}
+
+VEHICLE_CONTEXT_LABELS = {
+    'bicycle',
+    'bike',
+    'driver',
+    'ebike',
+    'e_bike',
+    'license_plate',
+    'moped',
+    'motorbike',
+    'motorcycle',
+    'plate_number',
+    'rider',
+    'scooter',
+    'tricycle',
+    'vehicle',
+}
+
+DETECTED_OBJECT_COLLECTION_KEYS = {
+    'classes',
+    'detections',
+    'detected_objects',
+    'items',
+    'labels',
+    'objects',
+}
+
+
+def _normalize_detected_label(value):
+    if not isinstance(value, str):
+        return None
+
+    normalized = re.sub(r'[^a-z0-9]+', '_', value.strip().lower()).strip('_')
+    return normalized or None
+
+
+def _iter_detected_labels(value):
+    if value in (None, ''):
+        return
+
+    if isinstance(value, str):
+        normalized = _normalize_detected_label(value)
+        if normalized:
+            yield normalized
+        return
+
+    if isinstance(value, dict):
+        for key in ('class', 'label', 'name', 'type'):
+            normalized = _normalize_detected_label(value.get(key))
+            if normalized:
+                yield normalized
+
+        nested_found = False
+        for key in DETECTED_OBJECT_COLLECTION_KEYS:
+            if key in value:
+                nested_found = True
+                yield from _iter_detected_labels(value[key])
+
+        if not nested_found:
+            for item in value.values():
+                if isinstance(item, (dict, list, tuple, set)):
+                    yield from _iter_detected_labels(item)
+        return
+
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _iter_detected_labels(item)
+
+
+def _has_context_label(labels, keywords):
+    return any(keyword in label for label in labels for keyword in keywords)
+
+
+def _is_pedestrian_only_helmet_event(detected_objects):
+    labels = set(_iter_detected_labels(detected_objects))
+    if not labels:
+        return False
+
+    has_pedestrian = _has_context_label(labels, PEDESTRIAN_CONTEXT_LABELS)
+    has_vehicle = _has_context_label(labels, VEHICLE_CONTEXT_LABELS)
+    return has_pedestrian and not has_vehicle
 
 
 class FlexibleJSONField(serializers.JSONField):
@@ -72,6 +165,28 @@ class ViolationSerializer(serializers.ModelSerializer):
 
     def get_has_evidence_image(self, obj):
         return bool(obj.evidence_image)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        classification = attrs.get('classification')
+        detected_objects = attrs.get('detected_objects')
+
+        if (
+            classification in {'no_helmet', 'nutshell'}
+            and detected_objects is not None
+            and _is_pedestrian_only_helmet_event(detected_objects)
+        ):
+            raise serializers.ValidationError(
+                {
+                    'detected_objects': (
+                        'Rejected this helmet violation because the detection payload '
+                        'shows a pedestrian without any rider or vehicle context.'
+                    )
+                }
+            )
+
+        return attrs
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

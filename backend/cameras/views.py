@@ -12,7 +12,6 @@ from django.contrib.auth import get_user_model
 from users.permissions import (
     CanAccessCameraData,
     IsAdmin,
-    IsAdminOrReadOnly,
     IsYoloService,
 )
 
@@ -64,7 +63,7 @@ class SystemSettingsView(APIView):
         auth_header = self.request.headers.get("Authorization", "")
         if self.request.method in {"GET", "HEAD", "OPTIONS"} and auth_header.startswith("Api-Key "):
             return [IsYoloService()]
-        return [IsAdminOrReadOnly()]
+        return [IsAdmin()]
 
     def get(self, request):
         settings_obj = SystemSettings.get_settings()

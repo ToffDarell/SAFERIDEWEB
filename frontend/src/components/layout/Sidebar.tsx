@@ -26,7 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/violations", icon: AlertTriangle, label: "Violations", permission: "can_view_violations" },
   { path: "/reports", icon: FileText, label: "Reports", permission: "can_view_reports" },
-  { path: "/cameras", icon: Camera, label: "Camera Status", permission: "can_view_cameras" },
+  { path: "/cameras", icon: Camera, label: "Manage Cameras", permission: "can_view_cameras" },
   { path: "/settings", icon: Settings, label: "Settings" },
 ];
 

@@ -1,7 +1,13 @@
-from rest_framework import serializers
+from django.contrib.auth import logout as django_logout
+from django.core.exceptions import ObjectDoesNotExist
+from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, Throttled
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.views import APIView
 
 from .auth_security import LoginAttemptTracker
 from .recaptcha import validate_recaptcha_token
@@ -52,3 +58,64 @@ class ApprovedTokenObtainPairSerializer(TokenObtainPairSerializer):
 class ApprovedTokenObtainPairView(TokenObtainPairView):
     serializer_class = ApprovedTokenObtainPairSerializer
     throttle_classes = [LoginBurstRateThrottle, LoginSustainedRateThrottle]
+
+
+class ApprovedLogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        refresh_token = str(request.data.get("refresh", "")).strip()
+        auth_header = request.headers.get("Authorization", "")
+
+        if auth_header.startswith("Bearer ") and not refresh_token:
+            return Response(
+                {"detail": "Refresh token is required to securely log out a JWT session."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except TokenError:
+                return Response(
+                    {"detail": "Refresh token is invalid or already revoked."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            request.user.auth_token.delete()
+        except (AttributeError, ObjectDoesNotExist):
+            pass
+
+        django_logout(request)
+        return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
+
+
+class DisabledLegacyLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        return Response(
+            {
+                "detail": (
+                    "This login route is disabled. "
+                    "Use /api/auth/token/ so account approval rules are enforced."
+                )
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class DisabledLegacyRegistrationView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        return Response(
+            {
+                "detail": (
+                    "This registration route is disabled. "
+                    "Use /api/users/ for operator registration so admin approval is enforced."
+                )
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )

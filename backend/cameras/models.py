@@ -23,6 +23,17 @@ class SystemSettings(models.Model):
 
     # OCR
     ocr_confidence = models.FloatField(default=0.5)
+
+    # Notifications
+    notify_on_new_detection = models.BooleanField(default=True)
+    notify_on_operator_activity = models.BooleanField(default=True)
+    notify_on_camera_offline = models.BooleanField(default=True)
+
+    # Database preferences
+    database_backup_enabled = models.BooleanField(default=True)
+    database_backup_frequency_hours = models.PositiveIntegerField(default=24)
+    database_backup_retention_days = models.PositiveIntegerField(default=30)
+
     class Meta:
         verbose_name = 'System Settings'
 

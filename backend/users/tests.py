@@ -7,7 +7,7 @@ from rest_framework.test import APIClient, APIRequestFactory, APITestCase
 from unittest.mock import patch
 
 from cameras.models import Camera, SystemSettings
-from users.models import AdminNotification, UserProfile, get_default_operator_permissions
+from users.models import AdminNotification, UserNotification, UserProfile, get_default_operator_permissions
 from users.permissions import IsAdmin, IsOperator
 from violations.models import Violation
 
@@ -68,6 +68,32 @@ class LoginAuthTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(str(response.data["detail"]), "Account is not approved.")
 
+    def test_legacy_dj_rest_auth_login_route_is_disabled(self):
+        response = self.client.post(
+            "/api/auth/login/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("/api/auth/token/", str(response.data["detail"]))
+
+    def test_legacy_dj_rest_auth_registration_route_is_disabled(self):
+        response = self.client.post(
+            "/api/auth/registration/",
+            {
+                "username": "legacy_register",
+                "email": "legacy-register@example.com",
+                "password1": "S4feride!2026",
+                "password2": "S4feride!2026",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("/api/users/", str(response.data["detail"]))
+        self.assertFalse(User.objects.filter(username="legacy_register").exists())
+
     def test_login_is_locked_after_repeated_failed_attempts(self):
         for _ in range(5):
             response = self.client.post(
@@ -126,6 +152,32 @@ class LoginAuthTests(TestCase):
             format="json",
         )
         self.assertEqual(locked_response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_logout_blacklists_refresh_token(self):
+        login_response = self.client.post(
+            "/api/auth/token/",
+            {"username": "approved_user", "password": "password123"},
+            format="json",
+        )
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+        access_token = login_response.data["access"]
+        refresh_token = login_response.data["refresh"]
+        logout_response = self.client.post(
+            "/api/auth/logout/",
+            {"refresh": refresh_token},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access_token}",
+        )
+
+        self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+
+        refresh_response = self.client.post(
+            "/api/auth/token/refresh/",
+            {"refresh": refresh_token},
+            format="json",
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("google.oauth2.id_token.verify_oauth2_token")
     def test_google_login_respects_existing_password_lockout(self, mock_verify_token):
@@ -349,6 +401,7 @@ class RolePermissionTests(APITestCase):
             getattr(me_response, "data", getattr(me_response, "content", b"")),
         )
         self.assertEqual(me_response.data["permissions"], get_default_operator_permissions())
+        self.assertIn("display_preferences", me_response.data["profile"])
 
     def test_is_operator_allows_operator_only(self):
         permission = IsOperator()
@@ -359,10 +412,10 @@ class RolePermissionTests(APITestCase):
         request.user = self.admin_user
         self.assertFalse(permission.has_permission(request, None))
 
-    def test_is_admin_or_read_only_allows_operator_get_but_blocks_patch(self):
+    def test_global_settings_are_admin_only(self):
         self.client.force_authenticate(user=self.operator_user)
         get_response = self.client.get("/api/settings/")
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.status_code, status.HTTP_403_FORBIDDEN)
 
         patch_response = self.client.patch(
             "/api/settings/",
@@ -379,6 +432,36 @@ class RolePermissionTests(APITestCase):
         )
         self.assertEqual(admin_patch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(admin_patch_response.data["confidence_threshold"], 0.75)
+
+    def test_operator_can_manage_personal_preferences_only(self):
+        self.client.force_authenticate(user=self.operator_user)
+
+        get_response = self.client.get("/api/users/preferences/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.data["display_preferences"]["theme"], "system")
+
+        patch_response = self.client.patch(
+            "/api/users/preferences/",
+            {
+                "phone": "09123456789",
+                "organization": "TMC North",
+                "display_preferences": {
+                    "theme": "dark",
+                    "items_per_page": 25,
+                    "compact_mode": True,
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.data["display_preferences"]["theme"], "dark")
+        self.assertEqual(patch_response.data["display_preferences"]["items_per_page"], 25)
+        self.assertTrue(patch_response.data["display_preferences"]["compact_mode"])
+
+        self.operator_user.profile.refresh_from_db()
+        self.assertEqual(self.operator_user.profile.phone, "09123456789")
+        self.assertEqual(self.operator_user.profile.organization, "TMC North")
+        self.assertEqual(self.operator_user.profile.get_display_preferences()["theme"], "dark")
 
     def test_operator_cannot_approve_pending_registration(self):
         self.client.force_authenticate(user=self.operator_user)
@@ -404,6 +487,62 @@ class RolePermissionTests(APITestCase):
         self.client.force_authenticate(user=self.admin_user)
         admin_response = self.client.post("/api/users/create-operator/", payload, format="json")
         self.assertEqual(admin_response.status_code, status.HTTP_201_CREATED)
+
+    def test_admin_dashboard_returns_summary_alerts_camera_status_and_settings_snapshot(self):
+        AdminNotification.objects.create(
+            violation=self.violation,
+            notification_type="new_detection",
+            title="New detection received",
+            message="A new detection was created.",
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get("/api/users/dashboard/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["role"], "admin")
+        self.assertEqual(response.data["summary"]["total_violations"], 1)
+        self.assertEqual(response.data["camera_overview"]["total_cameras"], 1)
+        self.assertEqual(response.data["system_alert_count"], 1)
+        self.assertEqual(response.data["system_alerts"][0]["notification_type"], "new_detection")
+        self.assertIn("notify_on_new_detection", response.data["settings_snapshot"])
+        self.assertIn("database_backup_enabled", response.data["settings_snapshot"])
+
+    def test_admin_can_send_user_updates_and_operator_can_read_them(self):
+        self.client.force_authenticate(user=self.admin_user)
+        send_response = self.client.post(
+            "/api/users/notifications/send/",
+            {
+                "title": "System maintenance",
+                "message": "Expect a short maintenance window tonight.",
+                "recipient_ids": [self.operator_user.id],
+            },
+            format="json",
+        )
+        self.assertEqual(send_response.status_code, status.HTTP_201_CREATED)
+
+        operator_client = APIClient()
+        operator_client.force_authenticate(user=self.operator_user)
+
+        list_response = operator_client.get("/api/users/notifications/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data), 1)
+        self.assertEqual(list_response.data[0]["title"], "System maintenance")
+
+        notification_id = list_response.data[0]["id"]
+        mark_read_response = operator_client.post(
+            f"/api/users/notifications/{notification_id}/mark-read/"
+        )
+        self.assertEqual(mark_read_response.status_code, status.HTTP_200_OK)
+
+        unread_response = operator_client.get("/api/users/notifications/", {"unread_only": "true"})
+        self.assertEqual(unread_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(unread_response.data), 0)
+
+        dashboard_response = operator_client.get("/api/users/dashboard/")
+        self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dashboard_response.data["role"], "tmc_operator")
+        self.assertIn("notifications", dashboard_response.data)
 
 
 class AdminNotificationTests(APITestCase):

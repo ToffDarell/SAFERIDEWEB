@@ -8,3 +8,4 @@ class CameraAdmin(admin.ModelAdmin):
     list_filter = ['status', 'created_at']
     search_fields = ['name', 'location']
     readonly_fields = ['created_at', 'updated_at']
+    ordering = ['id']

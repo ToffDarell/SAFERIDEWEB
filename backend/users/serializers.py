@@ -1,13 +1,13 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from cameras.models import SystemSettings
-from .models import AdminNotification, UserProfile, get_default_operator_permissions
+from .models import AdminNotification, UserNotification, UserProfile, get_default_operator_permissions
 from .recaptcha import validate_recaptcha_token
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
-        fields = ['role', 'status', 'phone', 'organization', 'permissions', 'created_at']
+        fields = ['role', 'status', 'phone', 'organization', 'permissions', 'display_preferences', 'created_at']
         read_only_fields = ['status', 'permissions', 'created_at']
 
 class UserSerializer(serializers.ModelSerializer):
@@ -27,6 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
             data['permissions'] = effective_permissions
             if isinstance(data.get('profile'), dict):
                 data['profile']['permissions'] = effective_permissions
+                data['profile']['display_preferences'] = profile.get_display_preferences()
         return data
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -141,5 +142,40 @@ class AdminNotificationSerializer(serializers.ModelSerializer):
         if profile:
             return profile.get_role_display()
         if obj.actor.is_superuser or obj.actor.is_staff:
+            return 'Administrator'
+        return None
+
+
+class UserNotificationSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UserNotification
+        fields = [
+            'id',
+            'notification_type',
+            'title',
+            'message',
+            'is_read',
+            'created_at',
+            'sender',
+            'sender_name',
+            'sender_role',
+        ]
+        read_only_fields = fields
+
+    def get_sender_name(self, obj):
+        if not obj.sender:
+            return None
+        return obj.sender.get_full_name().strip() or obj.sender.username
+
+    def get_sender_role(self, obj):
+        if not obj.sender:
+            return None
+        profile = getattr(obj.sender, 'profile', None)
+        if profile:
+            return profile.get_role_display()
+        if obj.sender.is_superuser or obj.sender.is_staff:
             return 'Administrator'
         return None

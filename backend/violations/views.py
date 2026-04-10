@@ -35,13 +35,14 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.units import pixels_to_EMU
 
+from cameras.models import SystemSettings
 from .models import Violation
 from .serializers import (
     ViolationSerializer,
     ViolationSummarySerializer,
     ViolationWeeklyChartSerializer,
 )
-from users.models import AdminNotification
+from users.models import AdminNotification, UserNotification
 from users.permissions import (
     CanAccessViolationRecords,
     CanViewViolationAnalytics,
@@ -219,6 +220,13 @@ class ViolationViewSet(viewsets.ModelViewSet):
         if self.action in ['retrieve', 'evidence', 'update', 'partial_update']:
             return [CanViewViolations()]
         return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        violation = serializer.save()
+        settings_obj = SystemSettings.get_settings()
+        if settings_obj.notify_on_new_detection:
+            AdminNotification.create_for_new_detection(violation=violation)
+            UserNotification.create_for_new_detection(violation=violation)
 
     def perform_update(self, serializer):
         if not has_user_permission(self.request.user, "can_update_violation_status"):

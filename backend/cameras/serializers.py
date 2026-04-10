@@ -16,6 +16,12 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
             'conf_helmet',
             'conf_license_plate',
             'ocr_confidence',
+            'notify_on_new_detection',
+            'notify_on_operator_activity',
+            'notify_on_camera_offline',
+            'database_backup_enabled',
+            'database_backup_frequency_hours',
+            'database_backup_retention_days',
         ]
 
 

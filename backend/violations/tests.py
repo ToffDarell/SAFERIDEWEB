@@ -11,7 +11,7 @@ from rest_framework.test import APITestCase
 from rest_framework_api_key.models import APIKey
 
 from cameras.models import Camera
-from users.models import AdminNotification, UserProfile, get_default_operator_permissions
+from users.models import AdminNotification, UserNotification, UserProfile, get_default_operator_permissions
 from violations.models import Violation
 
 
@@ -167,6 +167,10 @@ class ViolationAnalyticsTests(APITestCase):
             classification="helmet",
             review_status="pending",
         )
+        expected_total = Violation.objects.filter(
+            detected_at__year=timezone.localdate().year,
+            detected_at__month=timezone.localdate().month,
+        ).count()
         self.client.force_authenticate(user=self.user)
 
         response = self.client.get(
@@ -175,7 +179,7 @@ class ViolationAnalyticsTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["total_violations"], 5)
+        self.assertEqual(response.data["total_violations"], expected_total)
 
     def test_weekly_chart_supports_custom_date_range(self):
         self.client.force_authenticate(user=self.user)
@@ -416,6 +420,15 @@ class ViolationAnalyticsTests(APITestCase):
 
 class ViolationServiceAuthTests(APITestCase):
     def setUp(self):
+        self.operator_user = User.objects.create_user(
+            username="service_operator",
+            email="service-operator@example.com",
+            password="password123",
+        )
+        UserProfile.objects.update_or_create(
+            user=self.operator_user,
+            defaults={"role": "tmc_operator", "status": "approved"},
+        )
         self.camera = Camera.objects.create(
             name="Service Camera",
             location="South Road",
@@ -432,6 +445,76 @@ class ViolationServiceAuthTests(APITestCase):
             "classification": "no_helmet",
             "plate_number": "ABC123",
             "bounding_box": {"x1": 1, "y1": 2, "x2": 3, "y2": 4},
+        }
+
+        response = self.client.post(
+            "/api/violations/",
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION=f"Api-Key {self.api_key}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Violation.objects.count(), 1)
+        self.assertEqual(Violation.objects.get().classification, "no_helmet")
+        created_violation = Violation.objects.get()
+        self.assertTrue(
+            AdminNotification.objects.filter(
+                violation=created_violation,
+                notification_type="new_detection",
+            ).exists()
+        )
+        self.assertTrue(
+            UserNotification.objects.filter(
+                recipient=self.operator_user,
+                notification_type="new_detection",
+            ).exists()
+        )
+
+    def test_api_key_rejects_no_helmet_when_detected_objects_only_show_pedestrian(self):
+        payload = {
+            "camera": self.camera.id,
+            "detected_at": timezone.now().isoformat(),
+            "detection_status": "violation",
+            "confidence_score": 0.94,
+            "classification": "no_helmet",
+            "plate_number": "",
+            "bounding_box": {"x1": 1, "y1": 2, "x2": 3, "y2": 4},
+            "detected_objects": {
+                "objects": [
+                    {"class": "person"},
+                    {"label": "walking"},
+                ]
+            },
+        }
+
+        response = self.client.post(
+            "/api/violations/",
+            payload,
+            format="json",
+            HTTP_AUTHORIZATION=f"Api-Key {self.api_key}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detected_objects", response.data)
+        self.assertEqual(Violation.objects.count(), 0)
+
+    def test_api_key_allows_no_helmet_when_detected_objects_include_vehicle_context(self):
+        payload = {
+            "camera": self.camera.id,
+            "detected_at": timezone.now().isoformat(),
+            "detection_status": "violation",
+            "confidence_score": 0.94,
+            "classification": "no_helmet",
+            "plate_number": "",
+            "bounding_box": {"x1": 1, "y1": 2, "x2": 3, "y2": 4},
+            "detected_objects": {
+                "objects": [
+                    {"class": "person"},
+                    {"class": "motorcycle"},
+                    {"class": "no_helmet"},
+                ]
+            },
         }
 
         response = self.client.post(

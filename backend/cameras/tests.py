@@ -47,6 +47,8 @@ class CameraServiceAuthTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("confidence_threshold", response.data)
+        self.assertIn("notify_on_new_detection", response.data)
+        self.assertIn("database_backup_enabled", response.data)
 
 
 class CameraReadPermissionTests(APITestCase):
@@ -145,3 +147,25 @@ class CameraReadPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "active")
         self.assertTrue(response.data["is_live"])
+
+    def test_admin_can_update_notification_and_database_preferences_in_settings(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(
+            "/api/settings/",
+            {
+                "notify_on_new_detection": False,
+                "notify_on_operator_activity": False,
+                "database_backup_enabled": False,
+                "database_backup_frequency_hours": 12,
+                "database_backup_retention_days": 14,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["notify_on_new_detection"])
+        self.assertFalse(response.data["notify_on_operator_activity"])
+        self.assertFalse(response.data["database_backup_enabled"])
+        self.assertEqual(response.data["database_backup_frequency_hours"], 12)
+        self.assertEqual(response.data["database_backup_retention_days"], 14)

@@ -5,14 +5,25 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import AdminNotification, DEFAULT_OPERATOR_PERMISSIONS, UserProfile, get_default_operator_permissions
+from cameras.models import Camera, SystemSettings
+from cameras.serializers import CameraSerializer
+from violations.models import Violation
+from violations.serializers import ViolationSerializer
+
+from .models import (
+    AdminNotification,
+    DEFAULT_OPERATOR_PERMISSIONS,
+    UserNotification,
+    UserProfile,
+    get_default_operator_permissions,
+)
 from .permissions import IsAdmin, IsApprovedUser, is_admin_user
 from .serializers import (
     AdminNotificationSerializer,
+    UserNotificationSerializer,
     UserRegistrationSerializer,
     UserSerializer,
 )
-from cameras.models import SystemSettings
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -43,6 +54,27 @@ class UserViewSet(viewsets.ModelViewSet):
             payload["profile"]["permissions"] = permissions
         return payload
 
+    @staticmethod
+    def _build_violation_summary(queryset):
+        today = timezone.localdate()
+        return {
+            "total_violations": queryset.count(),
+            "pending_violations": queryset.filter(review_status="pending").count(),
+            "reviewed_violations": queryset.filter(review_status="reviewed").count(),
+            "resolved_violations": queryset.filter(review_status="resolved").count(),
+            "today_violations": queryset.filter(detected_at__date=today).count(),
+        }
+
+    @staticmethod
+    def _build_camera_overview(cameras):
+        active_cameras = sum(1 for camera in cameras if camera.is_live())
+        total_cameras = len(cameras)
+        return {
+            "total_cameras": total_cameras,
+            "active_cameras": active_cameras,
+            "inactive_cameras": total_cameras - active_cameras,
+        }
+
     def get_queryset(self):
         user = self.request.user
         if not user or not user.is_authenticated:
@@ -55,7 +87,16 @@ class UserViewSet(viewsets.ModelViewSet):
         request_path = self.request.path.rstrip("/")
         if self.action == "create":
             return [AllowAny()]
-        if self.action in ["me", "update_me", "change_password"] or request_path.endswith("/users/me") or request_path.endswith("/users/change-password"):
+        if self.action in [
+            "me",
+            "preferences",
+            "update_me",
+            "change_password",
+            "dashboard",
+            "notifications",
+            "mark_notification_read",
+            "mark_all_notifications_read",
+        ] or request_path.endswith("/users/me") or request_path.endswith("/users/change-password"):
             return [IsApprovedUser()]
         return [IsAdmin()]
 
@@ -67,6 +108,103 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def me(self, request):
         return Response(self._build_user_payload(request.user))
+
+    @action(detail=False, methods=["get", "patch"], url_path="preferences")
+    def preferences(self, request):
+        profile = getattr(request.user, "profile", None)
+        if not profile:
+            return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
+        if request.method.lower() == "patch":
+            request.user.first_name = request.data.get("first_name", request.user.first_name)
+            request.user.last_name = request.data.get("last_name", request.user.last_name)
+            request.user.email = request.data.get("email", request.user.email)
+            request.user.save()
+
+            profile.phone = request.data.get("phone", profile.phone)
+            profile.organization = request.data.get("organization", profile.organization)
+            if "display_preferences" in request.data:
+                profile.display_preferences = request.data.get("display_preferences")
+            profile.save()
+
+            return Response(
+                {
+                    "detail": "Preferences updated.",
+                    "display_preferences": profile.get_display_preferences(),
+                }
+            )
+
+        return Response(
+            {
+                "first_name": request.user.first_name,
+                "last_name": request.user.last_name,
+                "email": request.user.email,
+                "phone": profile.phone,
+                "organization": profile.organization,
+                "display_preferences": profile.get_display_preferences(),
+            }
+        )
+
+    @action(detail=False, methods=["get"], url_path="dashboard")
+    def dashboard(self, request):
+        violations = Violation.objects.select_related("camera", "reviewed_by__profile").order_by("-detected_at")
+        recent_violations = violations[:5]
+        cameras = list(Camera.objects.all())
+        base_payload = {
+            "summary": self._build_violation_summary(violations),
+            "recent_detections": ViolationSerializer(
+                recent_violations,
+                many=True,
+                context={"request": request},
+            ).data,
+            "camera_overview": self._build_camera_overview(cameras),
+            "camera_statuses": CameraSerializer(
+                cameras,
+                many=True,
+                context={"request": request},
+            ).data,
+        }
+
+        if is_admin_user(request.user):
+            alert_queryset = AdminNotification.objects.select_related(
+                "actor",
+                "actor__profile",
+                "violation",
+            ).filter(
+                notification_type__in=AdminNotification.get_alert_notification_types()
+            )
+            unread_alerts = alert_queryset.filter(is_read=False)
+            base_payload.update(
+                {
+                    "role": "admin",
+                    "system_alert_count": unread_alerts.count(),
+                    "system_alerts": AdminNotificationSerializer(
+                        unread_alerts[:10],
+                        many=True,
+                    ).data,
+                }
+            )
+            settings_obj = SystemSettings.get_settings()
+            base_payload["settings_snapshot"] = {
+                "notify_on_new_detection": settings_obj.notify_on_new_detection,
+                "notify_on_operator_activity": settings_obj.notify_on_operator_activity,
+                "notify_on_camera_offline": settings_obj.notify_on_camera_offline,
+                "database_backup_enabled": settings_obj.database_backup_enabled,
+                "database_backup_frequency_hours": settings_obj.database_backup_frequency_hours,
+            }
+            return Response(base_payload)
+
+        user_notifications = UserNotification.objects.filter(recipient=request.user)
+        base_payload.update(
+            {
+                "role": "tmc_operator",
+                "unread_notification_count": user_notifications.filter(is_read=False).count(),
+                "notifications": UserNotificationSerializer(
+                    user_notifications[:10],
+                    many=True,
+                ).data,
+            }
+        )
+        return Response(base_payload)
 
     @action(detail=False, methods=["get"], permission_classes=[IsAdmin])
     def pending(self, request):
@@ -208,10 +346,17 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["patch"], url_path="me")
     def update_me(self, request):
         user = request.user
+        profile = getattr(user, "profile", None)
         user.first_name = request.data.get("first_name", user.first_name)
         user.last_name = request.data.get("last_name", user.last_name)
         user.email = request.data.get("email", user.email)
         user.save()
+        if profile:
+            profile.phone = request.data.get("phone", profile.phone)
+            profile.organization = request.data.get("organization", profile.organization)
+            if "display_preferences" in request.data:
+                profile.display_preferences = request.data.get("display_preferences")
+            profile.save()
         return Response({"detail": "Profile updated."})
 
     @action(detail=False, methods=["get"], url_path="admin-notifications", permission_classes=[IsAdmin])
@@ -236,6 +381,70 @@ class UserViewSet(viewsets.ModelViewSet):
 
         serializer = AdminNotificationSerializer(queryset[:50], many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="notifications")
+    def notifications(self, request):
+        unread_only = str(request.query_params.get("unread_only", "")).lower() in {"1", "true", "yes"}
+        queryset = UserNotification.objects.filter(recipient=request.user)
+        if unread_only:
+            queryset = queryset.filter(is_read=False)
+        serializer = UserNotificationSerializer(queryset[:50], many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["post"], url_path="notifications/send", permission_classes=[IsAdmin])
+    def send_notification(self, request):
+        title = str(request.data.get("title", "")).strip()
+        message = str(request.data.get("message", "")).strip()
+        send_to_all = bool(request.data.get("send_to_all", False))
+        recipient_ids = request.data.get("recipient_ids", [])
+
+        if not title or not message:
+            return Response(
+                {"error": "Title and message are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recipients = User.objects.filter(profile__status="approved").exclude(id=request.user.id)
+        if not send_to_all:
+            if not isinstance(recipient_ids, list) or not recipient_ids:
+                return Response(
+                    {"error": "Provide recipient_ids or set send_to_all to true."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            recipients = recipients.filter(id__in=recipient_ids)
+
+        created_notifications = UserNotification.create_for_recipients(
+            sender=request.user,
+            recipients=recipients,
+            title=title,
+            message=message,
+        )
+        return Response(
+            {"detail": f"Update sent to {len(created_notifications)} user(s)."},
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"notifications/(?P<notification_id>\d+)/mark-read",
+    )
+    def mark_notification_read(self, request, notification_id=None):
+        updated = UserNotification.objects.filter(
+            id=notification_id,
+            recipient=request.user,
+        ).update(is_read=True)
+        if not updated:
+            return Response({"error": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Notification marked as read."})
+
+    @action(detail=False, methods=["post"], url_path="notifications/mark-all-read")
+    def mark_all_notifications_read(self, request):
+        updated = UserNotification.objects.filter(
+            recipient=request.user,
+            is_read=False,
+        ).update(is_read=True)
+        return Response({"detail": f"{updated} notification(s) marked as read."})
 
     @action(
         detail=False,

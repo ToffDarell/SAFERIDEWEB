@@ -3,7 +3,12 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenRefreshView
-from users.jwt_views import ApprovedTokenObtainPairView
+from users.jwt_views import (
+    ApprovedLogoutView,
+    ApprovedTokenObtainPairView,
+    DisabledLegacyLoginView,
+    DisabledLegacyRegistrationView,
+)
 from cameras.views import SystemSettingsView
 from violations.views import ViolationExportView
 
@@ -13,6 +18,13 @@ urlpatterns = [
     # JWT Auth
     path("api/auth/token/", ApprovedTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/auth/logout/", ApprovedLogoutView.as_view(), name="approved_logout"),
+    path("api/auth/login/", DisabledLegacyLoginView.as_view(), name="disabled_legacy_login"),
+    path(
+        "api/auth/registration/",
+        DisabledLegacyRegistrationView.as_view(),
+        name="disabled_legacy_registration",
+    ),
 
     # Google OAuth2
     path('api/auth/', include('dj_rest_auth.urls')),

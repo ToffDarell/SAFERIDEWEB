@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     # REST Framework
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'rest_framework.authtoken',  # Required for dj-rest-auth
     'rest_framework_api_key',
     

@@ -159,6 +159,9 @@ const Settings = () => {
   const getPermissionsForUser = (user: any) =>
     normalizePermissions(user?.permissions || user?.profile?.permissions);
 
+  const getUserAccountStatus = (user: any) =>
+    String(user?.profile?.status ?? user?.status ?? 'approved').toLowerCase();
+
   const loadSystemSettings = async () => {
     try {
       const resp = await fetch(`${API_BASE}/settings/`, { headers: getAuthHeaders() });
@@ -270,7 +273,25 @@ const Settings = () => {
         headers: getAuthHeaders(),
       });
       if (!resp.ok) throw new Error(await resp.text());
+
+      const nextStatus = action === 'approve' ? 'approved' : 'rejected';
       setPendingList((prev) => prev.filter((u) => u.id !== userId));
+      setUsersList((prev) =>
+        prev
+          .map((user) =>
+            user.id === userId
+              ? {
+                  ...user,
+                  status: nextStatus,
+                  profile: {
+                    ...(user.profile ?? {}),
+                    status: nextStatus,
+                  },
+                }
+              : user
+          )
+          .filter((user) => getUserAccountStatus(user) !== 'rejected')
+      );
       toast({
         title: action === 'approve' ? 'User Approved' : 'User Rejected',
         description: `"${name}" has been ${action === 'approve' ? 'approved and can now log in' : 'rejected'}.`,
@@ -338,6 +359,10 @@ const Settings = () => {
   const filteredUsersList = usersList.filter((user) => {
     const role = user.profile?.role ?? user.role ?? 'tmc_operator';
     if (userRoleFilter !== 'all' && role !== userRoleFilter) {
+      return false;
+    }
+
+    if (getUserAccountStatus(user) === 'rejected') {
       return false;
     }
 

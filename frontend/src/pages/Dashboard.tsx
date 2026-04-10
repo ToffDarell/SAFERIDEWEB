@@ -188,10 +188,27 @@ const Dashboard = () => {
     }
   }, [selectedCamera?.id, selectedCamera?.status, selectedCamera?.stream_url]);
 
+  useEffect(() => {
+    if (!selectedCamera?.stream_url || selectedCamera.status !== 'active') return;
+
+    // Some browsers keep the last MJPEG frame on screen when the socket stalls.
+    // Periodically reconnect so the dashboard recovers without a manual refresh.
+    // 10 s matches the STALE_THRESHOLD_MS in MjpegFeed on LiveMonitor.
+    const interval = setInterval(() => {
+      setStreamKey((currentKey) => currentKey + 1);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [selectedCamera?.id, selectedCamera?.status, selectedCamera?.stream_url]);
+
   const handleRefreshStream = () => {
     setStreamError(false);
     setStreamKey((currentKey) => currentKey + 1);
   };
+
+  const selectedStreamUrl = selectedCamera?.stream_url
+    ? `${selectedCamera.stream_url}${selectedCamera.stream_url.includes('?') ? '&' : '?'}t=${streamKey}`
+    : '';
 
   const totalCameras = cameras.length;
   const onlineCameras = cameras.filter((camera) => camera.status === 'active').length;
@@ -390,10 +407,11 @@ const Dashboard = () => {
                       </span>
                     </div>
                     <img
-                      key={streamKey}
-                      src={selectedCamera.stream_url}
+                      key={selectedStreamUrl}
+                      src={selectedStreamUrl}
                       alt={`Live stream from ${selectedCamera.name}`}
                       className="h-full min-h-[400px] w-full object-cover"
+                      onLoad={() => setStreamError(false)}
                       onError={() => setStreamError(true)}
                     />
                   </div>

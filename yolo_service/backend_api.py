@@ -52,17 +52,39 @@ def update_camera_status(camera_id, status='active', stream_url=''):
         print(f"Error updating camera status: {e}")
 
 
-def send_violation_to_backend(detection_data, frame_bgr):
+def send_violation_to_backend(detection_data, frame_bgr=None, frame_jpeg=None):
     try:
         url = f"{BASE_URL}/api/violations/"
         camera_id = int(os.getenv('CAMERA_ID', '2'))
         now = _now_local()
 
         timestamp = now.strftime("%Y%m%d_%H%M%S_%f")
-        evidence_dir = os.getenv("EVIDENCE_DIR", "evidence")
-        os.makedirs(evidence_dir, exist_ok=True)
-        image_path = os.path.join(evidence_dir, f"violation_{timestamp}.jpg")
-        cv2.imwrite(image_path, frame_bgr)
+        image_filename = f"violation_{timestamp}.jpg"
+
+        jpeg_bytes = frame_jpeg
+        if jpeg_bytes is None and frame_bgr is not None:
+            quality = int(os.getenv('EVIDENCE_JPEG_QUALITY', '85'))
+            quality = max(30, min(95, quality))
+            ok, encoded = cv2.imencode(
+                '.jpg',
+                frame_bgr,
+                [cv2.IMWRITE_JPEG_QUALITY, quality],
+            )
+            if ok:
+                jpeg_bytes = encoded.tobytes()
+
+        if jpeg_bytes is None:
+            print('Failed to send: no evidence frame bytes available')
+            return False
+
+        if os.getenv('SAVE_LOCAL_EVIDENCE', '0') == '1':
+            evidence_dir = os.getenv("EVIDENCE_DIR", "evidence")
+            os.makedirs(evidence_dir, exist_ok=True)
+            image_path = os.path.join(evidence_dir, image_filename)
+            with open(image_path, 'wb') as evidence_file:
+                evidence_file.write(jpeg_bytes)
+
+        detected_objects = detection_data.get('detected_objects')
 
         payload = {
             'camera': camera_id,
@@ -74,12 +96,17 @@ def send_violation_to_backend(detection_data, frame_bgr):
             'bounding_box': json.dumps(detection_data.get('bounding_box', {})),
         }
 
-        with open(image_path, "rb") as img:
-            files = {"evidence_image": (os.path.basename(image_path), img, "image/jpeg")}
-            response = requests.post(
-                url, data=payload, files=files,
-                headers=_auth_headers(), timeout=15
-            )
+        if detected_objects is not None:
+            payload['detected_objects'] = json.dumps(detected_objects)
+
+        files = {"evidence_image": (image_filename, jpeg_bytes, "image/jpeg")}
+        response = requests.post(
+            url,
+            data=payload,
+            files=files,
+            headers=_auth_headers(),
+            timeout=float(os.getenv('BACKEND_POST_TIMEOUT', '8')),
+        )
 
         if response.status_code == 201:
             print(
@@ -87,11 +114,14 @@ def send_violation_to_backend(detection_data, frame_bgr):
                 f"Plate: {payload['plate_number']} | "
                 f"Confidence: {payload['confidence_score']:.2f}"
             )
+            return True
         else:
             print(f"Failed to send: {response.status_code} - {response.text}")
+            return False
 
     except Exception as e:
         print(f"Error sending to backend: {e}")
+        return False
 
 
 def fetch_settings_from_backend():

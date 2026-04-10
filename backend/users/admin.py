@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import AdminNotification, UserProfile
+from .models import AdminNotification, UserNotification, UserProfile
 
 
 @admin.register(UserProfile)
@@ -26,3 +26,11 @@ class AdminNotificationAdmin(admin.ModelAdmin):
     list_filter = ['notification_type', 'is_read', 'created_at']
     search_fields = ['title', 'message', 'actor__username', 'actor__email', 'violation__plate_number']
     readonly_fields = ['title', 'message', 'notification_type', 'actor', 'violation', 'created_at']
+
+
+@admin.register(UserNotification)
+class UserNotificationAdmin(admin.ModelAdmin):
+    list_display = ['title', 'recipient', 'sender', 'notification_type', 'is_read', 'created_at']
+    list_filter = ['notification_type', 'is_read', 'created_at']
+    search_fields = ['title', 'message', 'recipient__username', 'recipient__email', 'sender__username', 'sender__email']
+    readonly_fields = ['title', 'message', 'notification_type', 'sender', 'recipient', 'created_at']

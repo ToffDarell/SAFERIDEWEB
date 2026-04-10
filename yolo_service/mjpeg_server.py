@@ -4,7 +4,8 @@ Serves the latest annotated frame as an MJPEG stream on port 8081.
 The browser reads this instead of Django re-opening the RTSP.
 """
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 _latest_frame_lock = threading.Lock()
 _latest_frame_jpeg = None
@@ -21,10 +22,14 @@ class MJPEGHandler(BaseHTTPRequestHandler):
         pass  # suppress request logs
 
     def do_GET(self):
-        if self.path == '/stream':
+        if self.path.split('?', 1)[0] == '/stream':
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Connection', 'close')
             self.end_headers()
             try:
                 while True:
@@ -35,8 +40,9 @@ class MJPEGHandler(BaseHTTPRequestHandler):
                             b'--frame\r\n'
                             b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n'
                         )
-                    threading.Event().wait(0.033)  # ~30fps cap
-            except (BrokenPipeError, ConnectionResetError):
+                        self.wfile.flush()
+                    time.sleep(0.033)  # ~30fps cap
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
         else:
             self.send_response(404)
@@ -44,7 +50,7 @@ class MJPEGHandler(BaseHTTPRequestHandler):
 
 
 def start_mjpeg_server(port=8081):
-    server = HTTPServer(('0.0.0.0', port), MJPEGHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', port), MJPEGHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     print(f"✓ MJPEG server running on http://localhost:{port}/stream")
