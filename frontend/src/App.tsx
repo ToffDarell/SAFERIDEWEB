@@ -85,7 +85,7 @@ const App = () => {
                 <Route
                   path="/cameras"
                   element={
-                    <ProtectedRoute requiredPermission="can_view_cameras">
+                    <ProtectedRoute requiredPermission={["can_view_cameras", "can_manage_cameras"]}>
                       <CameraStatus />
                     </ProtectedRoute>
                   }

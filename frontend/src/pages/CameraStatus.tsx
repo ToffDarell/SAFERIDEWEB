@@ -33,7 +33,7 @@ const EMPTY_CAMERA_FORM: CameraFormState = {
 
 const CameraStatus = () => {
   const { toast } = useToast();
-  const { hasPermission, isAdmin } = usePermissions();
+  const { hasPermission } = usePermissions();
   const [cameras, setCameras] = useState<CameraType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -49,7 +49,7 @@ const CameraStatus = () => {
   const [isDeletingCamera, setIsDeletingCamera] = useState(false);
   const canAccessViolationData =
     hasPermission('can_view_violations') || hasPermission('can_view_reports');
-  const canManageCameras = isAdmin;
+  const canManageCameras = hasPermission('can_manage_cameras');
 
 
   useEffect(() => {
@@ -352,7 +352,7 @@ const CameraStatus = () => {
           </p>
           {canManageCameras && (
             <p className="app-hint-text mt-2">
-              Administrators can add, edit, and remove camera devices from this page.
+              Users with camera management access can add, edit, and remove camera devices from this page.
             </p>
           )}
         </div>

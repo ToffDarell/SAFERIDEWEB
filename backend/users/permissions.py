@@ -110,8 +110,13 @@ class CanViewViolationAnalytics(HasApprovedPermission):
 
 
 class CanAccessCameraData(HasApprovedPermission):
-    permission_keys = ("can_view_cameras", "can_view_live_monitor", "can_view_reports")
+    permission_keys = ("can_view_cameras", "can_manage_cameras", "can_view_live_monitor", "can_view_reports")
     message = "You do not have permission to access camera data."
+
+
+class CanManageCameras(HasApprovedPermission):
+    permission_keys = ("can_manage_cameras",)
+    message = "You do not have permission to manage cameras."
 
 
 class IsAdmin(BasePermission):

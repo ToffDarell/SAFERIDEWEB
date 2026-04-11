@@ -9,6 +9,7 @@ DEFAULT_OPERATOR_PERMISSIONS = {
     "can_view_reports": True,
     "can_export_reports": False,
     "can_view_cameras": True,
+    "can_manage_cameras": False,
 }
 
 DEFAULT_DISPLAY_PREFERENCES = {
@@ -54,7 +55,7 @@ def normalize_display_preferences(value):
 
 class UserProfile(models.Model):
     ROLE_CHOICES = [
-        ('admin', 'Administrator'),
+        ('admin', 'TMC Administrator'),
         ('tmc_operator', 'TMC Operator'),
     ]
     

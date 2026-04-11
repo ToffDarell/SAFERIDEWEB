@@ -393,7 +393,7 @@ const Settings = () => {
         fullName,
         user.username ?? '',
         user.email ?? '',
-        role === 'admin' ? 'Administrator' : 'TMC Operator',
+        role === 'admin' ? 'TMC Administrator' : 'TMC Operator',
         status,
         organization,
         registered,
@@ -530,7 +530,7 @@ const Settings = () => {
       }
 
       toast({
-        title: newOperator.role === 'admin' ? 'Administrator Created' : 'Operator Created',
+        title: newOperator.role === 'admin' ? 'TMC Administrator Created' : 'Operator Created',
         description: json.detail ?? `User ${newOperator.name || newOperator.email} has been added.`,
       });
       setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
@@ -559,7 +559,7 @@ const Settings = () => {
           </p>
         </div>
         <Badge variant={isAdmin ? "default" : "secondary"} className="h-7">
-          {isAdmin ? 'Admin Access' : 'Operator Access'}
+          {isAdmin ? 'TMC Administrator Access' : 'Operator Access'}
         </Badge>
       </div>
 
@@ -618,7 +618,7 @@ const Settings = () => {
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="role-display">Role</Label>
-                  <Input id="role-display" value={isAdmin ? 'Administrator' : 'TMC Operator'} disabled />
+                  <Input id="role-display" value={isAdmin ? 'TMC Administrator' : 'TMC Operator'} disabled />
                 </div>
               </div>
               <Button onClick={() => handleSave('Profile')} disabled={savingSection === 'Profile'}>
@@ -1276,7 +1276,7 @@ const Settings = () => {
                   onClick={toggleManageUsers}
                 >
                   <Users className="w-4 h-4 mr-2" />
-                  Manage Users
+                  Manage Operators
                   {showManageUsers
                     ? <ChevronUp className="w-4 h-4 ml-auto" />
                     : <ChevronDown className="w-4 h-4 ml-auto" />}
@@ -1301,7 +1301,7 @@ const Settings = () => {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All Roles</SelectItem>
-                              <SelectItem value="admin">Administrator</SelectItem>
+                              <SelectItem value="admin">TMC Administrator</SelectItem>
                               <SelectItem value="tmc_operator">TMC Operator</SelectItem>
                             </SelectContent>
                           </Select>
@@ -1655,7 +1655,7 @@ const Settings = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="tmc_operator">TMC Operator</SelectItem>
-                            <SelectItem value="admin">Administrator</SelectItem>
+                            <SelectItem value="admin">TMC Administrator</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

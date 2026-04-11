@@ -5,6 +5,7 @@ export const DEFAULT_OPERATOR_PERMISSIONS = {
   can_view_reports: true,
   can_export_reports: false,
   can_view_cameras: true,
+  can_manage_cameras: false,
 } as const;
 
 export type PermissionKey = keyof typeof DEFAULT_OPERATOR_PERMISSIONS;
@@ -29,6 +30,7 @@ export const PERMISSION_TOGGLE_ITEMS: Array<{ key: PermissionKey; label: string 
   { key: "can_view_reports", label: "View reports" },
   { key: "can_export_reports", label: "Export reports" },
   { key: "can_view_cameras", label: "View cameras" },
+  { key: "can_manage_cameras", label: "Manage cameras" },
 ];
 
 export function normalizePermissions(

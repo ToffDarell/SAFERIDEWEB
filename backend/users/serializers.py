@@ -142,7 +142,7 @@ class AdminNotificationSerializer(serializers.ModelSerializer):
         if profile:
             return profile.get_role_display()
         if obj.actor.is_superuser or obj.actor.is_staff:
-            return 'Administrator'
+            return 'TMC Administrator'
         return None
 
 
@@ -177,5 +177,5 @@ class UserNotificationSerializer(serializers.ModelSerializer):
         if profile:
             return profile.get_role_display()
         if obj.sender.is_superuser or obj.sender.is_staff:
-            return 'Administrator'
+            return 'TMC Administrator'
         return None

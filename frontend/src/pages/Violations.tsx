@@ -260,7 +260,7 @@ const Violations = () => {
 
     // Step 1: Optimistic UI update immediately
     const reviewerName = currentUser?.name || currentUser?.username || 'Unknown';
-    const reviewerRole = currentUser?.role === 'admin' ? 'Administrator' : 'TMC Operator';
+    const reviewerRole = currentUser?.role === 'admin' ? 'TMC Administrator' : 'TMC Operator';
     setViolations(prev =>
       prev.map(v => v.id === violationId ? {
         ...v,

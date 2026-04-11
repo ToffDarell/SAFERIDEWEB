@@ -36,6 +36,6 @@ class CameraSerializer(serializers.ModelSerializer):
         data['is_live'] = instance.is_live()
         request = self.context.get('request')
         user = getattr(request, 'user', None)
-        if not has_any_user_permission(user, ("can_view_cameras", "can_view_live_monitor")):
+        if not has_any_user_permission(user, ("can_view_cameras", "can_manage_cameras", "can_view_live_monitor")):
             data['stream_url'] = ''
         return data

@@ -126,6 +126,49 @@ class CameraReadPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["stream_url"], self.camera.stream_url)
 
+    def test_operator_with_manage_cameras_permission_can_update_camera(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": False,
+            "can_view_live_monitor": False,
+            "can_view_reports": False,
+            "can_manage_cameras": True,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        list_response = self.client.get("/api/cameras/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        payload = list_response.data if isinstance(list_response.data, list) else list_response.data.get("results", [])
+        self.assertEqual(payload[0]["stream_url"], self.camera.stream_url)
+
+        patch_response = self.client.patch(
+            f"/api/cameras/{self.camera.id}/",
+            {"name": "Updated Camera"},
+            format="json",
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.camera.refresh_from_db()
+        self.assertEqual(self.camera.name, "Updated Camera")
+
+    def test_operator_without_manage_cameras_permission_cannot_update_camera(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": True,
+            "can_manage_cameras": False,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        response = self.client.patch(
+            f"/api/cameras/{self.camera.id}/",
+            {"name": "Updated Camera"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_camera_with_stale_heartbeat_is_serialized_as_inactive(self):
         self.camera.last_seen_at = timezone.now() - timedelta(seconds=30)
         self.camera.save(update_fields=["last_seen_at"])

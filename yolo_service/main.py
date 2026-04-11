@@ -231,7 +231,7 @@ def main():
     print(f"Preview window : {'on' if show_window else 'off'}")
     print("-" * 60)
 
-    model_path = os.path.join('weights', 'v18.pt')
+    model_path = os.path.join('weights', 'v34.pt')
     if not os.path.exists(model_path):
         print(f"ERROR: Model not found at {model_path}")
         return

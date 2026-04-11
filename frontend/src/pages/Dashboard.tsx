@@ -84,7 +84,10 @@ const Dashboard = () => {
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
   const canViewLiveMonitor = hasPermission('can_view_live_monitor');
-  const canViewCameraStatus = hasPermission('can_view_cameras') || canViewLiveMonitor;
+  const canViewCameraStatus =
+    hasPermission('can_view_cameras') ||
+    hasPermission('can_manage_cameras') ||
+    canViewLiveMonitor;
   const canAccessViolationAnalytics =
     hasPermission('can_view_violations') || hasPermission('can_view_reports');
   const canAccessCameraData = canViewCameraStatus;

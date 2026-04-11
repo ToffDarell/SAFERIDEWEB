@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 from django.contrib.auth import get_user_model
 from users.permissions import (
     CanAccessCameraData,
+    CanManageCameras,
     IsAdmin,
     IsYoloService,
 )
@@ -27,6 +28,8 @@ class CameraViewSet(viewsets.ModelViewSet):
             return [CanAccessCameraData()]
         if self.action == 'heartbeat':
             return [IsYoloService()]
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [CanManageCameras()]
         return [IsAdmin()]
 
     @action(detail=True, methods=['post'], url_path='heartbeat')

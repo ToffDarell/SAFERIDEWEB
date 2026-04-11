@@ -102,7 +102,7 @@ const AdminLogin = () => {
         name: fullName || userInfo.username || credentials.username,
       });
 
-      const roleName = userInfo.role === 'admin' ? 'Administrator' : 'TMC Operator';
+      const roleName = userInfo.role === 'admin' ? 'TMC Administrator' : 'TMC Operator';
       
       toast({
         title: 'Login Successful',
@@ -177,7 +177,7 @@ const AdminLogin = () => {
           return;
         }
 
-        const roleName = result.user.role === 'admin' ? 'Administrator' : 'TMC Operator';
+        const roleName = result.user.role === 'admin' ? 'TMC Administrator' : 'TMC Operator';
         
         toast({
           title: 'Login Successful',

@@ -5,7 +5,7 @@ import type { PermissionKey } from '@/lib/permissions';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredPermission?: PermissionKey;
+  requiredPermission?: PermissionKey | PermissionKey[];
 }
 
 const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) => {
@@ -28,7 +28,12 @@ const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) =
     );
   }
 
-  if (requiredPermission && !hasPermission(requiredPermission)) {
+  if (
+    requiredPermission &&
+    !(Array.isArray(requiredPermission)
+      ? requiredPermission.some((permissionKey) => hasPermission(permissionKey))
+      : hasPermission(requiredPermission))
+  ) {
     return <Navigate to="/dashboard" replace />;
   }
 

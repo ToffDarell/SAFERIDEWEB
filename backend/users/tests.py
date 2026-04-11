@@ -370,15 +370,17 @@ class RolePermissionTests(APITestCase):
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.patch(
             f"/api/users/{self.operator_user.id}/permissions/",
-            {"can_export_reports": True, "unknown_key": True},
+            {"can_export_reports": True, "can_manage_cameras": True, "unknown_key": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["can_export_reports"])
+        self.assertTrue(response.data["can_manage_cameras"])
         self.assertNotIn("unknown_key", response.data)
 
         self.operator_user.profile.refresh_from_db()
         self.assertTrue(self.operator_user.profile.permissions["can_export_reports"])
+        self.assertTrue(self.operator_user.profile.permissions["can_manage_cameras"])
 
     def test_user_list_and_me_include_permissions(self):
         self.client.force_authenticate(user=self.admin_user)
