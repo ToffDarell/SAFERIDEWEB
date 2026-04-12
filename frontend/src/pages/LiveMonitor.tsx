@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { camerasService, type Camera as BackendCamera } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface MonitorCamera {
   id: string;
@@ -32,6 +33,7 @@ const formatTimestamp = (date: Date) =>
 
 const LiveMonitor = () => {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [backendCameras, setBackendCameras] = useState<BackendCamera[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -192,8 +194,8 @@ const LiveMonitor = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="space-y-1">
         <h2 className="app-page-heading">Live Monitor</h2>
         <p className="app-body-text text-muted-foreground">
           Real-time MJPEG feed from YOLO detection service
@@ -202,13 +204,13 @@ const LiveMonitor = () => {
 
       {/* Filter bar */}
       <Card className="border-border bg-card shadow-none">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end">
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
               <div className="w-full space-y-2 md:w-[320px]">
                 <label className="app-label-text">Camera</label>
                 <Select value={cameraFilter} onValueChange={setCameraFilter}>
-                  <SelectTrigger className="h-[30px] rounded-md border-border bg-background text-[13px] transition-colors">
+                  <SelectTrigger className="h-10 rounded-md border-border bg-background text-[13px] transition-colors">
                     <SelectValue placeholder="All cameras" />
                   </SelectTrigger>
                   <SelectContent>
@@ -222,11 +224,11 @@ const LiveMonitor = () => {
                 </Select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap md:w-auto">
                 <Button
                   type="button"
                   variant="outline"
-                  className={`h-[30px] rounded-md border px-3 text-[13px] font-medium transition-colors ${
+                  className={`h-10 justify-center rounded-md border px-3 text-[13px] font-medium transition-colors ${
                     viewMode === 'grid'
                       ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
                       : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
@@ -234,25 +236,25 @@ const LiveMonitor = () => {
                   onClick={() => setViewMode('grid')}
                 >
                   <LayoutGrid className="mr-2 h-4 w-4" />
-                  2×2 Grid
+                  {isMobile ? 'Grid View' : '2x2 Grid'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  className={`h-[30px] rounded-md border px-3 text-[13px] font-medium transition-colors ${
+                  className={`h-10 justify-center rounded-md border px-3 text-[13px] font-medium transition-colors ${
                     viewMode === 'focus'
                       ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
                       : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
-                  onClick={() => openFocusedView(undefined, true)}
+                  onClick={() => openFocusedView(undefined, !isMobile)}
                 >
-                  View Camera
+                  {isMobile ? 'Focus View' : 'View Camera'}
                 </Button>
               </div>
             </div>
 
             <div
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${
+              className={`inline-flex w-fit items-center gap-2 self-start rounded-full px-3 py-1.5 xl:self-auto ${
                 monitorStatus === 'online'
                   ? 'border border-[#9FE1CB] bg-[#F0FBF7]'
                   : 'border border-[#F3C7C3] bg-[#FEF3F2]'
@@ -287,7 +289,7 @@ const LiveMonitor = () => {
                 <p className="app-hint-text">No cameras available</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
                 {filteredCameras.map((camera) => (
                   <div
                     key={camera.id}
@@ -306,7 +308,7 @@ const LiveMonitor = () => {
                       camera={camera}
                       timestamp={formatTimestamp(currentTime)}
                       showViewButton
-                      onView={() => openFocusedView(camera.id, true)}
+                      onView={() => openFocusedView(camera.id, !isMobile)}
                     />
                   </div>
                 ))}
@@ -317,16 +319,16 @@ const LiveMonitor = () => {
       ) : (
         /* FOCUS VIEW */
         <Card className="border-border bg-card shadow-none">
-          <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <CardHeader className="flex flex-col items-start gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="app-section-title">Focused Camera View</CardTitle>
               <p className="app-hint-text mt-1">{getFeedLabel(focusedCamera)}</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <Button
                 type="button"
                 variant="outline"
-                className="h-[32px] rounded-md border border-border bg-background px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="h-10 rounded-md border border-border bg-background px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={toggleFullscreen}
               >
                 {isFullscreen ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}
@@ -335,17 +337,17 @@ const LiveMonitor = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="h-[32px] rounded-md border border-border bg-background px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="h-10 rounded-md border border-border bg-background px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => setViewMode('grid')}
               >
-                Back to all cameras
+                {isMobile ? 'Back to Grid' : 'Back to all cameras'}
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4 pt-0">
             <div
               ref={focusedFeedRef}
-              className="relative h-[calc(100vh-240px)] min-h-[360px] overflow-hidden rounded-lg border border-[#E4E6ED]"
+              className="relative h-[300px] overflow-hidden rounded-lg border border-[#E4E6ED] sm:h-[400px]"
               style={{ backgroundColor: '#1A1A2E' }}
             >
               {focusedCamera.status === 'online' ? (
@@ -379,10 +381,10 @@ const LiveMonitor = () => {
  * for STALE_THRESHOLD_MS we bump the cache-bust key, which forces the
  * browser to open a new HTTP connection to the MJPEG server.
  */
-const SAMPLE_INTERVAL_MS = 4_000;   // how often to sample
-const STALE_THRESHOLD_MS = 10_000;  // freeze duration before reconnect
-const MAX_RETRIES        = 5;
-const RETRY_DELAY_MS     = 2_000;
+const SAMPLE_INTERVAL_MS = 4_000; // how often to sample
+const STALE_THRESHOLD_MS = 10_000; // freeze duration before reconnect
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 2_000;
 
 const MjpegFeed = ({
   url,
@@ -393,22 +395,22 @@ const MjpegFeed = ({
   label: string;
   fit?: 'cover' | 'contain';
 }) => {
-  const [bustKey, setBustKey]     = useState(0);
+  const [bustKey, setBustKey] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
-  const [failed, setFailed]       = useState(false);
-  const imgRef    = useRef<HTMLImageElement>(null);
+  const [failed, setFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const lastPixelsRef  = useRef<string>('');
-  const lastChangeRef  = useRef<number>(Date.now());
+  const lastPixelsRef = useRef<string>('');
+  const lastChangeRef = useRef<number>(Date.now());
 
   // Reset state whenever the source URL changes
   useEffect(() => {
     if (!url) { setFailed(true); return; }
     setFailed(false);
     setRetryCount(0);
-    setBustKey((k) => k + 1);  // fresh connection on URL change
-    lastPixelsRef.current  = '';
-    lastChangeRef.current  = Date.now();
+    setBustKey((k) => k + 1); // fresh connection on URL change
+    lastPixelsRef.current = '';
+    lastChangeRef.current = Date.now();
   }, [url]);
 
   // Stale-frame detector
@@ -416,18 +418,18 @@ const MjpegFeed = ({
     if (!url || failed) return;
 
     const id = setInterval(() => {
-      const img    = imgRef.current;
+      const img = imgRef.current;
       const canvas = canvasRef.current;
       if (!img || !canvas || !img.naturalWidth) return;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Sample a 16×16 block from the centre of the frame
+      // Sample a 16x16 block from the centre of the frame
       const sw = 16, sh = 16;
-      const sx = Math.floor((img.naturalWidth  - sw) / 2);
+      const sx = Math.floor((img.naturalWidth - sw) / 2);
       const sy = Math.floor((img.naturalHeight - sh) / 2);
-      canvas.width  = sw;
+      canvas.width = sw;
       canvas.height = sh;
 
       try {
@@ -438,13 +440,13 @@ const MjpegFeed = ({
           lastPixelsRef.current = pixels;
           lastChangeRef.current = Date.now();
         } else if (Date.now() - lastChangeRef.current > STALE_THRESHOLD_MS) {
-          // Stream is frozen — force a reconnect
+          // Stream is frozen - force a reconnect
           lastChangeRef.current = Date.now();
           lastPixelsRef.current = '';
           setBustKey((k) => k + 1);
         }
       } catch {
-        // Cross-origin canvas taint — skip the check silently
+        // Cross-origin canvas taint - skip the check silently
       }
     }, SAMPLE_INTERVAL_MS);
 
@@ -468,7 +470,7 @@ const MjpegFeed = ({
 
   return (
     <>
-      {/* Hidden canvas for pixel sampling — must be in DOM but invisible */}
+      {/* Hidden canvas for pixel sampling - must be in DOM but invisible */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       <img
         ref={imgRef}
@@ -520,10 +522,10 @@ const FeedOverlay = ({
 }) => (
   <>
     <div
-      className="absolute left-3 top-3 rounded-md px-2.5 py-1"
+      className="absolute left-3 top-3 max-w-[calc(100%-5.5rem)] rounded-md px-2.5 py-1"
       style={{ backgroundColor: 'rgba(26,26,46,0.72)' }}
     >
-      <span className="text-[11px] font-normal text-white/85">
+      <span className="block truncate text-[11px] font-normal text-white/85">
         {getFeedLabel(camera)}
       </span>
     </div>
@@ -543,7 +545,7 @@ const FeedOverlay = ({
     </div>
 
     {showViewButton && (
-      <div className="absolute inset-x-0 bottom-3 flex justify-center opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="absolute inset-x-0 bottom-3 flex justify-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
         <button
           type="button"
           className="rounded-[5px] border border-white/15 px-3 py-1 text-[11px] font-normal text-white"

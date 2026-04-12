@@ -212,6 +212,11 @@ class ViolationAnalyticsTests(APITestCase):
                 f"/api/violations/{self.violation_with_evidence.id}/evidence/"
             )
         )
+        self.assertTrue(
+            response.data["evidence_download_url"].endswith(
+                f"/api/violations/{self.violation_with_evidence.id}/evidence/?download=1"
+            )
+        )
 
     def test_admin_violation_detail_returns_full_plate_number(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -309,7 +314,7 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(camera_response.status_code, status.HTTP_200_OK)
         self.assertEqual(camera_response.data["count"], 0)
 
-    def test_authenticated_user_can_download_protected_evidence(self):
+    def test_authenticated_user_can_view_protected_evidence_inline(self):
         self.client.force_authenticate(user=self.user)
 
         response = self.client.get(f"/api/violations/{self.violation_with_evidence.id}/evidence/")
@@ -317,6 +322,7 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("image/gif", response["Content-Type"])
         self.assertEqual(response["Cache-Control"], "private, no-store")
+        self.assertIn("inline", response["Content-Disposition"])
         self.assertTrue(
             AdminNotification.objects.filter(
                 notification_type="evidence_view",
@@ -324,6 +330,20 @@ class ViolationAnalyticsTests(APITestCase):
                 violation=self.violation_with_evidence,
             ).exists()
         )
+
+    def test_authenticated_user_can_download_protected_evidence_as_attachment(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            f"/api/violations/{self.violation_with_evidence.id}/evidence/",
+            {"download": "1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("image/gif", response["Content-Type"])
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn(".gif", response["Content-Disposition"])
 
     def test_protected_evidence_endpoint_requires_authentication(self):
         response = self.client.get(f"/api/violations/{self.violation_with_evidence.id}/evidence/")

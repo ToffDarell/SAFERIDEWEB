@@ -128,6 +128,7 @@ class ViolationSerializer(serializers.ModelSerializer):
     reviewed_by_role = serializers.SerializerMethodField()
     id_number = serializers.SerializerMethodField()
     has_evidence_image = serializers.SerializerMethodField()
+    evidence_download_url = serializers.SerializerMethodField()
     bounding_box = FlexibleJSONField(required=False, allow_null=True)
     detected_objects = FlexibleJSONField(required=False, allow_null=True)
 
@@ -136,10 +137,14 @@ class ViolationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'id_number', 'camera', 'camera_name', 'camera_location', 'detected_at', 'detection_status',
             'confidence_score', 'classification', 'plate_number',
-            'evidence_image', 'has_evidence_image', 'bounding_box', 'detected_objects', 'processed_at',
+            'evidence_image', 'evidence_download_url', 'has_evidence_image', 'bounding_box',
+            'detected_objects', 'processed_at',
             'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at',
         ]
-        read_only_fields = ['id', 'id_number', 'processed_at', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at']
+        read_only_fields = [
+            'id', 'id_number', 'processed_at', 'reviewed_by', 'reviewed_by_name',
+            'reviewed_by_role', 'reviewed_at', 'evidence_download_url',
+        ]
 
     def get_id_number(self, obj):
         # Generates ID in format YYYY-XXX
@@ -166,6 +171,9 @@ class ViolationSerializer(serializers.ModelSerializer):
     def get_has_evidence_image(self, obj):
         return bool(obj.evidence_image)
 
+    def get_evidence_download_url(self, obj):
+        return self._build_evidence_url(obj, download=True)
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -190,19 +198,19 @@ class ViolationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        request = self.context.get('request')
-
-        if instance.evidence_image:
-            evidence_path = reverse('violation-evidence', kwargs={'pk': instance.pk})
-            data['evidence_image'] = (
-                request.build_absolute_uri(evidence_path)
-                if request is not None
-                else evidence_path
-            )
-        else:
-            data['evidence_image'] = None
-
+        data['evidence_image'] = self._build_evidence_url(instance)
         return data
+
+    def _build_evidence_url(self, instance, *, download=False):
+        if not instance.evidence_image:
+            return None
+
+        evidence_path = reverse('violation-evidence', kwargs={'pk': instance.pk})
+        if download:
+            evidence_path = f'{evidence_path}?download=1'
+
+        request = self.context.get('request')
+        return request.build_absolute_uri(evidence_path) if request is not None else evidence_path
 
 
 class ViolationSummaryClassSerializer(serializers.Serializer):

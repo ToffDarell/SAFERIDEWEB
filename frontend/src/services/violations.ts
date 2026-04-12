@@ -12,6 +12,7 @@ export interface Violation {
   classification: 'no_helmet' | 'helmet' | 'nutshell' | 'license_plate';
   plate_number: string | null;
   evidence_image: string | null;
+  evidence_download_url?: string | null;
   has_evidence_image: boolean;
   bounding_box: unknown;
   detected_objects: unknown;
@@ -77,6 +78,18 @@ export const violationsService = {
       responseType: 'blob',
     });
     return response.data;
+  },
+
+  async downloadEvidence(id: number, downloadUrl?: string | null) {
+    const response = await apiClient.get(
+      downloadUrl || `/violations/${id}/evidence/?download=1`,
+      { responseType: 'blob' },
+    );
+
+    return {
+      blob: response.data as Blob,
+      contentDisposition: response.headers['content-disposition'] as string | undefined,
+    };
   },
 
   async getSummary(filters?: Record<string, string>): Promise<ViolationSummary> {

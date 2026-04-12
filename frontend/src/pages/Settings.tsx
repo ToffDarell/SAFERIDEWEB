@@ -18,6 +18,7 @@ import apiClient from '@/services/api';
 import { usersService } from '@/services/users';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { normalizePermissions, PERMISSION_TOGGLE_ITEMS, type PermissionKey } from '@/lib/permissions';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 function getAuthHeaders() {
   // Support both storage keys: 'accessToken' (used elsewhere) and 'access_token'
@@ -32,6 +33,7 @@ const Settings = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentUser, isAdmin, refreshCurrentUser } = usePermissions();
+  const isMobile = useIsMobile();
 
   // Persist selected tab in the URL query param `tab` so refresh keeps the same tab
   const initialTab = searchParams.get('tab') || 'profile';
@@ -550,54 +552,56 @@ const Settings = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <h2 className="app-page-heading">Settings</h2>
           <p className="app-body-text text-muted-foreground">
             {isAdmin ? 'Manage system configuration and preferences' : 'Manage your personal preferences'}
           </p>
         </div>
-        <Badge variant={isAdmin ? "default" : "secondary"} className="h-7">
-          {isAdmin ? 'TMC Administrator Access' : 'Operator Access'}
+        <Badge variant={isAdmin ? "default" : "secondary"} className="h-7 self-start whitespace-nowrap">
+          {isAdmin ? (isMobile ? 'Admin Access' : 'TMC Administrator Access') : 'Operator Access'}
         </Badge>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v: string) => { setActiveTab(v); setSearchParams({ tab: v }); }} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-7">
-          <TabsTrigger value="profile" className="gap-2">
-            <User className="w-4 h-4" />
-            Profile
-          </TabsTrigger>
-          <TabsTrigger value="security" className="gap-2">
-            <Shield className="w-4 h-4" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-2">
-            <Bell className="w-4 h-4" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="preferences" className="gap-2">
-            <Palette className="w-4 h-4" />
-            UI & Preferences
-          </TabsTrigger>
-          <TabsTrigger value="detection" className="gap-2">
-            <Monitor className="w-4 h-4" />
-            Detection
-          </TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="activity" className="gap-2">
-              <History className="w-4 h-4" />
-              Activity Log
+      <Tabs value={activeTab} onValueChange={(v: string) => { setActiveTab(v); setSearchParams({ tab: v }); }} className="space-y-4 sm:space-y-6">
+        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+          <TabsList className="h-auto w-max min-w-full justify-start gap-1 rounded-xl p-1 sm:w-full sm:flex-wrap">
+            <TabsTrigger value="profile" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+              <User className="w-4 h-4" />
+              Profile
             </TabsTrigger>
-          )}
-          {isAdmin && (
-            <TabsTrigger value="users" className="gap-2">
-              <Users className="w-4 h-4" />
-              Users
+            <TabsTrigger value="security" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+              <Shield className="w-4 h-4" />
+              Security
             </TabsTrigger>
-          )}
-        </TabsList>
+            <TabsTrigger value="notifications" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+              <Bell className="w-4 h-4" />
+              {isMobile ? 'Alerts' : 'Notifications'}
+            </TabsTrigger>
+            <TabsTrigger value="preferences" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+              <Palette className="w-4 h-4" />
+              {isMobile ? 'Preferences' : 'UI & Preferences'}
+            </TabsTrigger>
+            <TabsTrigger value="detection" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+              <Monitor className="w-4 h-4" />
+              Detection
+            </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="activity" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+                <History className="w-4 h-4" />
+                {isMobile ? 'Activity' : 'Activity Log'}
+              </TabsTrigger>
+            )}
+            {isAdmin && (
+              <TabsTrigger value="users" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+                <Users className="w-4 h-4" />
+                Users
+              </TabsTrigger>
+            )}
+          </TabsList>
+        </div>
 
         {/* Profile Settings - Available to All */}
         <TabsContent value="profile" className="space-y-6">

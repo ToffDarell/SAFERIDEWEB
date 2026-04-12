@@ -38,6 +38,8 @@ interface SidebarProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onLogout: () => void;
+  mobile?: boolean;
+  onNavigate?: () => void;
 }
 
 export function Sidebar({
@@ -45,6 +47,8 @@ export function Sidebar({
   sidebarOpen,
   onToggleSidebar,
   onLogout,
+  mobile = false,
+  onNavigate,
 }: SidebarProps) {
   const { currentUser, hasPermission } = usePermissions();
 
@@ -57,16 +61,19 @@ export function Sidebar({
   );
 
   const isActive = (path: string) => currentPath === path;
+  const showExpanded = mobile || sidebarOpen;
 
   return (
     <aside
-      className={`${
-        sidebarOpen ? "w-64" : "w-20"
-      } flex shrink-0 flex-col border-r border-border bg-card transition-all duration-300`}
+      className={
+        mobile
+          ? "flex h-full min-h-full w-full flex-col bg-card"
+          : `${sidebarOpen ? "w-64" : "w-20"} flex shrink-0 flex-col border-r border-border bg-card transition-[width] duration-300`
+      }
     >
-      <div className="border-b border-border p-4">
-        <div className="flex items-center justify-between">
-          {sidebarOpen ? (
+      <div className={`border-b border-border ${mobile ? "p-5 pr-12" : "p-4"}`}>
+        <div className="flex items-center justify-between gap-3">
+          {showExpanded ? (
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-primary/10 shadow-sm">
                 <img
@@ -89,44 +96,48 @@ export function Sidebar({
               />
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleSidebar}
-            className={!sidebarOpen ? "hidden" : ""}
-          >
-            <Menu className="h-4 w-4" />
-          </Button>
+          {!mobile && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleSidebar}
+              className={!sidebarOpen ? "hidden" : ""}
+              aria-label="Collapse sidebar"
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
+          )}
         </div>
-        {!sidebarOpen && (
+        {!mobile && !sidebarOpen && (
           <Button variant="ghost" size="sm" onClick={onToggleSidebar} className="mt-2 w-full">
             <Menu className="h-4 w-4" />
           </Button>
         )}
       </div>
 
-      <nav className="flex-1 p-3">
+      <nav className={`flex-1 ${mobile ? "p-4" : "p-3"}`}>
         <div className="space-y-1">
           {navItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
+              onClick={onNavigate}
               className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-[13px] font-medium transition-all ${
                 isActive(item.path)
                   ? "border-primary/20 bg-primary/10 text-foreground shadow-sm"
                   : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
-              title={!sidebarOpen ? item.label : ""}
+              title={!showExpanded ? item.label : ""}
             >
               <item.icon className="h-5 w-5 flex-shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
+              {showExpanded && <span>{item.label}</span>}
             </Link>
           ))}
         </div>
       </nav>
 
-      <div className="border-t border-border p-3">
-        {sidebarOpen ? (
+      <div className={`border-t border-border ${mobile ? "p-4" : "p-3"}`}>
+        {showExpanded ? (
           <div className="space-y-2">
             <div className="px-3 py-2">
               <p className="truncate text-[13px] font-medium text-foreground">

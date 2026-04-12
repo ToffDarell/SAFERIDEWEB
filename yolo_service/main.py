@@ -80,6 +80,58 @@ def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
     return (inter_area / violation_area) >= 0.15
 
 
+def _draw_status_panel(frame, compliant_count, violation_count, latest_plate):
+    lines = [
+        (f"Compliant: {compliant_count}", (0, 255, 0)),
+        (f"Violations: {violation_count}", (0, 0, 255)),
+    ]
+    if latest_plate:
+        lines.append((f"Plate: {latest_plate}", (0, 255, 255)))
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.9
+    thickness = 2
+    line_gap = 12
+    padding_x = 16
+    padding_y = 14
+    right_margin = 16
+    top_margin = 72 if frame.shape[0] >= 240 else 12
+
+    text_sizes = [cv2.getTextSize(text, font, font_scale, thickness)[0] for text, _ in lines]
+    max_text_width = max(width for width, _ in text_sizes)
+    max_text_height = max(height for _, height in text_sizes)
+
+    box_width = max_text_width + (padding_x * 2)
+    box_height = (len(lines) * max_text_height) + ((len(lines) - 1) * line_gap) + (padding_y * 2)
+
+    frame_height, frame_width = frame.shape[:2]
+    panel_left = max(0, frame_width - box_width - right_margin)
+    panel_top = top_margin
+    if panel_top + box_height > frame_height:
+        panel_top = max(8, frame_height - box_height - 8)
+    panel_right = min(frame_width - 1, panel_left + box_width)
+    panel_bottom = min(frame_height - 1, panel_top + box_height)
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (panel_left, panel_top), (panel_right, panel_bottom), (18, 18, 32), -1)
+    cv2.rectangle(overlay, (panel_left, panel_top), (panel_right, panel_bottom), (220, 220, 220), 1)
+    cv2.addWeighted(overlay, 0.82, frame, 0.18, 0, frame)
+
+    baseline_y = panel_top + padding_y + max_text_height
+    for index, ((text, color), _) in enumerate(zip(lines, text_sizes)):
+        y = baseline_y + (index * (max_text_height + line_gap))
+        cv2.putText(
+            frame,
+            text,
+            (panel_left + padding_x, y),
+            font,
+            font_scale,
+            color,
+            thickness,
+            cv2.LINE_AA,
+        )
+
+
 def _heartbeat_worker(camera_id, stream_url, heartbeat_interval, stop_event):
     while not stop_event.wait(heartbeat_interval):
         try:
@@ -231,7 +283,7 @@ def main():
     print(f"Preview window : {'on' if show_window else 'off'}")
     print("-" * 60)
 
-    model_path = os.path.join('weights', 'v34.pt')
+    model_path = os.path.join('weights', 'v29.pt')
     if not os.path.exists(model_path):
         print(f"ERROR: Model not found at {model_path}")
         return
@@ -576,13 +628,7 @@ def main():
                     print(f"[Settings updated] conf={conf_threshold} | cooldown={send_cooldown}s | ocr={ocr_conf}")
                     print(f"  per-class: no_helmet={conf_no_helmet} | nutshell={conf_nutshell} | helmet={conf_helmet} | plate={conf_license_plate}")
 
-            cv2.putText(annotated_frame, f"Compliant: {compliant_count}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(annotated_frame, f"Violations: {violation_count}", (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            if latest_plate:
-                cv2.putText(annotated_frame, f"Plate: {latest_plate}", (10, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            _draw_status_panel(annotated_frame, compliant_count, violation_count, latest_plate)
 
             # Encode a lighter MJPEG frame to reduce browser-side delay.
             stream_frame = annotated_frame

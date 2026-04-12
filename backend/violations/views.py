@@ -257,6 +257,10 @@ class ViolationViewSet(viewsets.ModelViewSet):
         if not violation.evidence_image:
             return Response({"error": "Evidence image not found."}, status=404)
 
+        download_requested = str(request.query_params.get("download", "")).lower() in {
+            "1", "true", "yes",
+        }
+
         AdminNotification.create_for_evidence_view(
             actor=request.user,
             violation=violation,
@@ -266,7 +270,7 @@ class ViolationViewSet(viewsets.ModelViewSet):
         content_type, _ = mimetypes.guess_type(evidence_name)
         response = FileResponse(
             violation.evidence_image.open('rb'),
-            as_attachment=False,
+            as_attachment=download_requested,
             filename=evidence_name,
             content_type=content_type or 'application/octet-stream',
         )

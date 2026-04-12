@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Search, FileSpreadsheet, FileText, CheckCircle, Eye } from 'lucide-react';
+import { Search, FileSpreadsheet, FileText, CheckCircle, Eye, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -54,6 +54,7 @@ const Violations = () => {
   const [selectedEvidence, setSelectedEvidence] = useState<Violation | null>(null);
   const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState('');
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [isEvidenceDownloading, setIsEvidenceDownloading] = useState(false);
   const [evidenceError, setEvidenceError] = useState('');
   const evidenceObjectUrlRef = useRef<string | null>(null);
   const trimmedSearchQuery = searchQuery.trim();
@@ -338,6 +339,51 @@ const Violations = () => {
       });
     } finally {
       setIsEvidenceLoading(false);
+    }
+  };
+
+  const getEvidenceFilename = (contentDisposition: string | undefined, violation: Violation) => {
+    const utf8Match = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]);
+    }
+
+    const filenameMatch = contentDisposition?.match(/filename="?([^"]+)"?/i);
+    if (filenameMatch?.[1]) {
+      return filenameMatch[1];
+    }
+
+    return `violation-${violation.id_number || violation.id}.jpg`;
+  };
+
+  const handleDownloadEvidence = async () => {
+    if (!selectedEvidence) {
+      return;
+    }
+
+    setIsEvidenceDownloading(true);
+
+    try {
+      const { blob, contentDisposition } = await violationsService.downloadEvidence(
+        selectedEvidence.id,
+        selectedEvidence.evidence_download_url,
+      );
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = getEvidenceFilename(contentDisposition, selectedEvidence);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      toast({
+        title: 'Download Failed',
+        description: 'Evidence image could not be downloaded.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsEvidenceDownloading(false);
     }
   };
 
@@ -734,6 +780,19 @@ const Violations = () => {
                     {formatDate(selectedEvidence.detected_at)} {formatTime(selectedEvidence.detected_at)}
                   </p>
                 </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-xl px-4 text-sm font-semibold shadow-none"
+                  onClick={() => void handleDownloadEvidence()}
+                  disabled={isEvidenceDownloading}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  {isEvidenceDownloading ? 'Downloading...' : 'Download Evidence'}
+                </Button>
               </div>
 
               <div className="overflow-hidden rounded-lg border border-border bg-[#F5F6FA]">

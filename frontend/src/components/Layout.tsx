@@ -1,5 +1,5 @@
 import { useLocation, Outlet } from 'react-router-dom';
-import { Bell, Moon, Sun, Trash2 } from 'lucide-react';
+import { Bell, Menu, Moon, Sun, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -12,14 +12,18 @@ import { useViolationNotifications } from '@/hooks/use-notifications';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { getNavigationLabel, Sidebar } from '@/components/layout/Sidebar';
 import { useTheme } from 'next-themes';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 
 export const Layout = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { isAdmin, clearCurrentUser } = usePermissions();
   const { resolvedTheme, setTheme } = useTheme();
+  const isMobile = useIsMobile();
   const adminNotifications = useAdminNotifications();
   const operatorNotifications = useLocalNotifications();
   const notifications = isAdmin ? adminNotifications.notifications : operatorNotifications.notifications;
@@ -35,6 +39,12 @@ export const Layout = () => {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (isMobile) {
+      setMobileNavOpen(false);
+    }
+  }, [isMobile, location.pathname]);
   
   const handleLogout = () => {
     authService.logout();
@@ -56,25 +66,55 @@ export const Layout = () => {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar
-        currentPath={location.pathname}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((open) => !open)}
-        onLogout={() => setShowLogoutDialog(true)}
-      />
+      {!isMobile && (
+        <Sidebar
+          currentPath={location.pathname}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          onLogout={() => setShowLogoutDialog(true)}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-screen min-w-0">
         {/* Header */}
-        <header className="sticky top-0 z-50 border-b border-border bg-card">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h2 className="app-page-heading">
+        <header className="sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              {isMobile && (
+                <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 rounded-full"
+                      aria-label="Open navigation"
+                    >
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="w-[86vw] max-w-[320px] p-0 sm:max-w-[320px]">
+                    <Sidebar
+                      currentPath={location.pathname}
+                      sidebarOpen
+                      onToggleSidebar={() => setMobileNavOpen(false)}
+                      onLogout={() => {
+                        setMobileNavOpen(false);
+                        setShowLogoutDialog(true);
+                      }}
+                      mobile
+                      onNavigate={() => setMobileNavOpen(false)}
+                    />
+                  </SheetContent>
+                </Sheet>
+              )}
+              <h2 className="app-page-heading truncate">
                 {getNavigationLabel(location.pathname)}
               </h2>
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-4">
               <Button
                 type="button"
                 variant="outline"
@@ -94,7 +134,7 @@ export const Layout = () => {
               </Button>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" className="relative">
+                  <Button variant="ghost" size="sm" className="relative h-9 w-9 rounded-full p-0">
                     <Bell className="w-4 h-4" />
                     {unreadCount > 0 && (
                       <Badge className="app-badge-text absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center p-0">
@@ -103,7 +143,7 @@ export const Layout = () => {
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-80">
+                <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)]">
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h4 className="app-section-title">{notificationHeading}</h4>
@@ -148,7 +188,7 @@ export const Layout = () => {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="absolute right-2 top-2 h-8 w-8 p-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                              className="absolute right-2 top-2 h-8 w-8 p-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100"
                               onClick={() => deleteNotification(notification.id)}
                               aria-label="Delete notification"
                               title="Delete notification"
@@ -179,7 +219,7 @@ export const Layout = () => {
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-background p-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-background p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
