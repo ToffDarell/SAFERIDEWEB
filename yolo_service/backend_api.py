@@ -100,6 +100,9 @@ def send_violation_to_backend(detection_data, frame_bgr=None, frame_jpeg=None):
             payload['detected_objects'] = json.dumps(detected_objects)
 
         files = {"evidence_image": (image_filename, jpeg_bytes, "image/jpeg")}
+        plate_crop_jpeg = detection_data.get('plate_crop_jpeg')
+        if plate_crop_jpeg:
+            files["plate_crop_image"] = (f"plate_{timestamp}.jpg", plate_crop_jpeg, "image/jpeg")
         response = requests.post(
             url,
             data=payload,

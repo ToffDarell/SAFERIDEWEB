@@ -52,12 +52,19 @@ class Camera(models.Model):
         ('active', 'Active'),
         ('inactive', 'Inactive'),
     ]
+    LENS_CHOICES = [
+        ('wide', 'Wide'),
+        ('tele', 'Tele'),
+    ]
     
     name = models.CharField(max_length=200)
     location = models.CharField(max_length=500, blank=True)
     stream_url = models.CharField(max_length=500, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    active_lens = models.CharField(max_length=20, choices=LENS_CHOICES, default='wide')
+    preferred_lens = models.CharField(max_length=20, choices=LENS_CHOICES, default='wide')
+    supports_lens_switching = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

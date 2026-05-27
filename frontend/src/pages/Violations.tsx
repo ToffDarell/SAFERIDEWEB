@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { Search, FileSpreadsheet, FileText, CheckCircle, Eye, Download } from 'lucide-react';
+import { Search, FileSpreadsheet, FileText, CheckCircle, Eye, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -53,10 +53,15 @@ const Violations = () => {
   const [filterReviewStatus, setFilterReviewStatus] = useState(defaultFilter);
   const [selectedEvidence, setSelectedEvidence] = useState<Violation | null>(null);
   const [selectedEvidenceUrl, setSelectedEvidenceUrl] = useState('');
+  const [selectedPlateCropUrl, setSelectedPlateCropUrl] = useState('');
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [isPlateCropLoading, setIsPlateCropLoading] = useState(false);
   const [isEvidenceDownloading, setIsEvidenceDownloading] = useState(false);
   const [evidenceError, setEvidenceError] = useState('');
+  const [plateCropError, setPlateCropError] = useState('');
+  const [evidenceViewIndex, setEvidenceViewIndex] = useState(0);
   const evidenceObjectUrlRef = useRef<string | null>(null);
+  const plateCropObjectUrlRef = useRef<string | null>(null);
   const trimmedSearchQuery = searchQuery.trim();
   const isSearchTooShort =
     !isPermissionsLoading && !isAdmin && trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 3;
@@ -129,6 +134,9 @@ const Violations = () => {
     return () => {
       if (evidenceObjectUrlRef.current) {
         URL.revokeObjectURL(evidenceObjectUrlRef.current);
+      }
+      if (plateCropObjectUrlRef.current) {
+        URL.revokeObjectURL(plateCropObjectUrlRef.current);
       }
     };
   }, []);
@@ -308,9 +316,17 @@ const Violations = () => {
       URL.revokeObjectURL(evidenceObjectUrlRef.current);
       evidenceObjectUrlRef.current = null;
     }
+    if (plateCropObjectUrlRef.current) {
+      URL.revokeObjectURL(plateCropObjectUrlRef.current);
+      plateCropObjectUrlRef.current = null;
+    }
     setSelectedEvidenceUrl('');
+    setSelectedPlateCropUrl('');
     setEvidenceError('');
+    setPlateCropError('');
     setIsEvidenceLoading(false);
+    setIsPlateCropLoading(false);
+    setEvidenceViewIndex(0);
   };
 
   const handleEvidenceDialogChange = (open: boolean) => {
@@ -324,6 +340,7 @@ const Violations = () => {
     setSelectedEvidence(violation);
     resetEvidencePreview();
     setIsEvidenceLoading(true);
+    setIsPlateCropLoading(violation.has_plate_crop_image);
 
     try {
       const evidenceBlob = await violationsService.getEvidenceBlob(violation.id);
@@ -339,6 +356,19 @@ const Violations = () => {
       });
     } finally {
       setIsEvidenceLoading(false);
+    }
+
+    if (violation.has_plate_crop_image) {
+      try {
+        const plateCropBlob = await violationsService.getEvidenceBlob(violation.id, 'plate');
+        const previewUrl = URL.createObjectURL(plateCropBlob);
+        plateCropObjectUrlRef.current = previewUrl;
+        setSelectedPlateCropUrl(previewUrl);
+      } catch (error) {
+        setPlateCropError('Cropped plate image could not be loaded.');
+      } finally {
+        setIsPlateCropLoading(false);
+      }
     }
   };
 
@@ -362,11 +392,13 @@ const Violations = () => {
     }
 
     setIsEvidenceDownloading(true);
+    const isPlateView = evidenceViewIndex === 1 && selectedEvidence.has_plate_crop_image;
 
     try {
       const { blob, contentDisposition } = await violationsService.downloadEvidence(
         selectedEvidence.id,
-        selectedEvidence.evidence_download_url,
+        isPlateView ? selectedEvidence.plate_crop_download_url : selectedEvidence.evidence_download_url,
+        isPlateView ? 'plate' : 'evidence',
       );
       const downloadUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -401,6 +433,29 @@ const Violations = () => {
   };
 
   const filteredViolations = violations;
+  const evidenceSlides = selectedEvidence
+    ? [
+        {
+          key: 'evidence',
+          label: 'Full Evidence',
+          url: selectedEvidenceUrl,
+          isLoading: isEvidenceLoading,
+          error: evidenceError,
+        },
+        ...(selectedEvidence.has_plate_crop_image
+          ? [
+              {
+                key: 'plate',
+                label: 'Plate Crop',
+                url: selectedPlateCropUrl,
+                isLoading: isPlateCropLoading,
+                error: plateCropError,
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const activeEvidenceSlide = evidenceSlides[evidenceViewIndex] || null;
 
   const handleDateModeChange = (value: ViolationsDateFilterMode) => {
     setFilterDateMode(value);
@@ -783,34 +838,61 @@ const Violations = () => {
               </div>
 
               <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 rounded-xl px-4 text-sm font-semibold shadow-none"
-                  onClick={() => void handleDownloadEvidence()}
-                  disabled={isEvidenceDownloading}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  {isEvidenceDownloading ? 'Downloading...' : 'Download Evidence'}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {evidenceSlides.length > 1 && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 rounded-xl px-3 text-sm font-semibold shadow-none"
+                        onClick={() => setEvidenceViewIndex((prev) => (prev === 0 ? evidenceSlides.length - 1 : prev - 1))}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
+                      <div className="rounded-xl border border-border px-3 py-2 text-sm font-medium text-foreground">
+                        {activeEvidenceSlide?.label}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 rounded-xl px-3 text-sm font-semibold shadow-none"
+                        onClick={() => setEvidenceViewIndex((prev) => (prev + 1) % evidenceSlides.length)}
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 rounded-xl px-4 text-sm font-semibold shadow-none"
+                    onClick={() => void handleDownloadEvidence()}
+                    disabled={isEvidenceDownloading}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    {isEvidenceDownloading ? 'Downloading...' : `Download ${evidenceViewIndex === 1 ? 'Plate Crop' : 'Evidence'}`}
+                  </Button>
+                </div>
               </div>
 
               <div className="overflow-hidden rounded-lg border border-border bg-[#F5F6FA]">
-                {isEvidenceLoading ? (
+                {activeEvidenceSlide?.isLoading ? (
                   <div className="flex min-h-[320px] items-center justify-center">
                     <div className="text-center">
                       <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
-                      <p className="app-hint-text">Loading protected evidence...</p>
+                      <p className="app-hint-text">Loading protected image...</p>
                     </div>
                   </div>
-                ) : evidenceError ? (
+                ) : activeEvidenceSlide?.error ? (
                   <div className="flex min-h-[320px] items-center justify-center px-6 text-center">
-                    <p className="app-body-text text-muted-foreground">{evidenceError}</p>
+                    <p className="app-body-text text-muted-foreground">{activeEvidenceSlide.error}</p>
                   </div>
                 ) : (
                   <img
-                    src={selectedEvidenceUrl}
-                    alt={`Evidence for violation ${selectedEvidence.id_number || selectedEvidence.id}`}
+                    src={activeEvidenceSlide?.url}
+                    alt={`${activeEvidenceSlide?.label || 'Evidence'} for violation ${selectedEvidence.id_number || selectedEvidence.id}`}
                     className="max-h-[70vh] w-full object-contain"
                   />
                 )}

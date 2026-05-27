@@ -72,6 +72,15 @@ class ViolationAnalyticsTests(APITestCase):
                 ),
                 content_type="image/gif",
             ),
+            plate_crop_image=SimpleUploadedFile(
+                "plate.gif",
+                (
+                    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+                    b"\xf9\x04\x01\n\x00\x01\x00,\x00\x00\x00\x00\x01\x00\x01\x00"
+                    b"\x00\x02\x02L\x01\x00;"
+                ),
+                content_type="image/gif",
+            ),
         )
         Violation.objects.create(
             camera=self.camera_a,
@@ -207,6 +216,7 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["plate_number"], "ABC1234")
         self.assertTrue(response.data["has_evidence_image"])
+        self.assertTrue(response.data["has_plate_crop_image"])
         self.assertTrue(
             response.data["evidence_image"].endswith(
                 f"/api/violations/{self.violation_with_evidence.id}/evidence/"
@@ -215,6 +225,16 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertTrue(
             response.data["evidence_download_url"].endswith(
                 f"/api/violations/{self.violation_with_evidence.id}/evidence/?download=1"
+            )
+        )
+        self.assertTrue(
+            response.data["plate_crop_image"].endswith(
+                f"/api/violations/{self.violation_with_evidence.id}/evidence/?variant=plate"
+            )
+        )
+        self.assertTrue(
+            response.data["plate_crop_download_url"].endswith(
+                f"/api/violations/{self.violation_with_evidence.id}/evidence/?variant=plate&download=1"
             )
         )
 
@@ -344,6 +364,19 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertIn("attachment", response["Content-Disposition"])
         self.assertIn(".gif", response["Content-Disposition"])
+
+    def test_authenticated_user_can_view_plate_crop_inline(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            f"/api/violations/{self.violation_with_evidence.id}/evidence/",
+            {"variant": "plate"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("image/gif", response["Content-Type"])
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+        self.assertIn("inline", response["Content-Disposition"])
 
     def test_protected_evidence_endpoint_requires_authentication(self):
         response = self.client.get(f"/api/violations/{self.violation_with_evidence.id}/evidence/")
@@ -558,6 +591,15 @@ class ViolationServiceAuthTests(APITestCase):
             ),
             content_type="image/gif",
         )
+        plate_crop_image = SimpleUploadedFile(
+            "plate.gif",
+            (
+                b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+                b"\xf9\x04\x01\n\x00\x01\x00,\x00\x00\x00\x00\x01\x00\x01\x00"
+                b"\x00\x02\x02L\x01\x00;"
+            ),
+            content_type="image/gif",
+        )
         payload = {
             "camera": str(self.camera.id),
             "detected_at": timezone.now().isoformat(),
@@ -567,6 +609,7 @@ class ViolationServiceAuthTests(APITestCase):
             "plate_number": "",
             "bounding_box": "{'x1': 11, 'y1': 22, 'x2': 33, 'y2': 44}",
             "evidence_image": evidence_image,
+            "plate_crop_image": plate_crop_image,
         }
 
         response = self.client.post(
@@ -581,3 +624,4 @@ class ViolationServiceAuthTests(APITestCase):
         violation = Violation.objects.get()
         self.assertEqual(violation.classification, "nutshell")
         self.assertEqual(violation.bounding_box, {"x1": 11, "y1": 22, "x2": 33, "y2": 44})
+        self.assertTrue(bool(violation.plate_crop_image))

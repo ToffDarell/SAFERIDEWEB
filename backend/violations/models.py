@@ -30,6 +30,7 @@ class Violation(models.Model):
     classification = models.CharField(max_length=50, choices=CLASSIFICATION_CHOICES)
     plate_number = models.CharField(max_length=50, null=True, blank=True)
     evidence_image = models.ImageField(upload_to='violations/%Y/%m/%d/', blank=True)
+    plate_crop_image = models.ImageField(upload_to='violations/%Y/%m/%d/plate_crops/', blank=True)
     bounding_box = models.JSONField(null=True, blank=True)
     detected_objects = models.JSONField(null=True, blank=True)
     processed_at = models.DateTimeField(auto_now_add=True)

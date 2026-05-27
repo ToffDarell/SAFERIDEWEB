@@ -129,6 +129,8 @@ class ViolationSerializer(serializers.ModelSerializer):
     id_number = serializers.SerializerMethodField()
     has_evidence_image = serializers.SerializerMethodField()
     evidence_download_url = serializers.SerializerMethodField()
+    plate_crop_download_url = serializers.SerializerMethodField()
+    has_plate_crop_image = serializers.SerializerMethodField()
     bounding_box = FlexibleJSONField(required=False, allow_null=True)
     detected_objects = FlexibleJSONField(required=False, allow_null=True)
 
@@ -138,6 +140,7 @@ class ViolationSerializer(serializers.ModelSerializer):
             'id', 'id_number', 'camera', 'camera_name', 'camera_location', 'detected_at', 'detection_status',
             'confidence_score', 'classification', 'plate_number',
             'evidence_image', 'evidence_download_url', 'has_evidence_image', 'bounding_box',
+            'plate_crop_image', 'plate_crop_download_url', 'has_plate_crop_image',
             'detected_objects', 'processed_at',
             'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_by_role', 'reviewed_at',
         ]
@@ -174,6 +177,12 @@ class ViolationSerializer(serializers.ModelSerializer):
     def get_evidence_download_url(self, obj):
         return self._build_evidence_url(obj, download=True)
 
+    def get_has_plate_crop_image(self, obj):
+        return bool(obj.plate_crop_image)
+
+    def get_plate_crop_download_url(self, obj):
+        return self._build_evidence_url(obj, download=True, variant='plate')
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
@@ -199,15 +208,22 @@ class ViolationSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['evidence_image'] = self._build_evidence_url(instance)
+        data['plate_crop_image'] = self._build_evidence_url(instance, variant='plate')
         return data
 
-    def _build_evidence_url(self, instance, *, download=False):
-        if not instance.evidence_image:
+    def _build_evidence_url(self, instance, *, download=False, variant='evidence'):
+        image_field = instance.plate_crop_image if variant == 'plate' else instance.evidence_image
+        if not image_field:
             return None
 
         evidence_path = reverse('violation-evidence', kwargs={'pk': instance.pk})
+        query_params = []
+        if variant == 'plate':
+            query_params.append('variant=plate')
         if download:
-            evidence_path = f'{evidence_path}?download=1'
+            query_params.append('download=1')
+        if query_params:
+            evidence_path = f"{evidence_path}?{'&'.join(query_params)}"
 
         request = self.context.get('request')
         return request.build_absolute_uri(evidence_path) if request is not None else evidence_path

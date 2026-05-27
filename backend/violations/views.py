@@ -254,7 +254,10 @@ class ViolationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='evidence')
     def evidence(self, request, pk=None):
         violation = self.get_object()
-        if not violation.evidence_image:
+        variant = str(request.query_params.get("variant", "")).lower()
+        image_field = violation.plate_crop_image if variant == 'plate' else violation.evidence_image
+
+        if not image_field:
             return Response({"error": "Evidence image not found."}, status=404)
 
         download_requested = str(request.query_params.get("download", "")).lower() in {
@@ -266,10 +269,10 @@ class ViolationViewSet(viewsets.ModelViewSet):
             violation=violation,
         )
 
-        evidence_name = Path(violation.evidence_image.name).name
+        evidence_name = Path(image_field.name).name
         content_type, _ = mimetypes.guess_type(evidence_name)
         response = FileResponse(
-            violation.evidence_image.open('rb'),
+            image_field.open('rb'),
             as_attachment=download_requested,
             filename=evidence_name,
             content_type=content_type or 'application/octet-stream',

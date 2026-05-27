@@ -800,6 +800,7 @@ const Settings = () => {
                     onChange={(e) => setPreferences((s: any) => ({ ...s, itemsPerPage: Number(e.target.value) }))}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] text-foreground"
                   >
+                    <option value={5}>5</option>
                     <option value={10}>10</option>
                     <option value={25}>25</option>
                     <option value={50}>50</option>

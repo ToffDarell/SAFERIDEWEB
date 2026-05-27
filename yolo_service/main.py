@@ -129,7 +129,31 @@ def _draw_status_panel(frame, compliant_count, violation_count, latest_plate):
             color,
             thickness,
             cv2.LINE_AA,
-        )
+        )            
+
+
+def _encode_plate_crop(frame_bgr, bbox, quality=90):
+    x1, y1, x2, y2 = bbox
+    frame_height, frame_width = frame_bgr.shape[:2]
+
+    x1 = max(0, min(frame_width, int(x1)))
+    x2 = max(0, min(frame_width, int(x2)))
+    y1 = max(0, min(frame_height, int(y1)))
+    y2 = max(0, min(frame_height, int(y2)))
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    crop = frame_bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+
+    ok, encoded = cv2.imencode(
+        '.jpg',
+        crop,
+        [cv2.IMWRITE_JPEG_QUALITY, max(30, min(95, int(quality)))],
+    )
+    return encoded.tobytes() if ok else None
 
 
 def _heartbeat_worker(camera_id, stream_url, heartbeat_interval, stop_event):
@@ -559,6 +583,25 @@ def main():
                     key = f"{class_name}:{plate_key}"
                     if (now - last_sent.get(key, 0)) >= send_cooldown:
                         last_sent[key] = now
+                        matched_plate_boxes = [
+                            plate_info
+                            for plate_info in plate_boxes
+                            if _plate_matches_violation((x1, y1, x2, y2), plate_info['bbox'])
+                        ]
+                        best_matched_plate = (
+                            max(matched_plate_boxes, key=lambda plate_info: plate_info['confidence'])
+                            if matched_plate_boxes
+                            else None
+                        )
+                        plate_crop_jpeg = (
+                            _encode_plate_crop(
+                                results.orig_img,
+                                best_matched_plate['bbox'],
+                                quality=int(os.getenv('PLATE_CROP_JPEG_QUALITY', '92')),
+                            )
+                            if best_matched_plate
+                            else None
+                        )
                         pending_violation_payloads.append(
                             {
                                 'status': 'violation',
@@ -573,7 +616,8 @@ def main():
                                     'objects': [
                                         {'class': c} for c in frame_classes
                                     ]
-                                }
+                                },
+                                'plate_crop_jpeg': plate_crop_jpeg,
                             }
                         )
 

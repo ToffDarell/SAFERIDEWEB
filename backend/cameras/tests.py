@@ -152,6 +152,33 @@ class CameraReadPermissionTests(APITestCase):
         self.camera.refresh_from_db()
         self.assertEqual(self.camera.name, "Updated Camera")
 
+    def test_operator_with_manage_cameras_permission_can_create_camera(self):
+        self.operator_user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_cameras": False,
+            "can_view_live_monitor": False,
+            "can_view_reports": False,
+            "can_manage_cameras": True,
+        }
+        self.operator_user.profile.save(update_fields=["permissions"])
+        self.client.force_authenticate(user=self.operator_user)
+
+        response = self.client.post(
+            "/api/cameras/",
+            {
+                "name": "South Camera",
+                "location": "South Road",
+                "stream_url": "",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        camera = Camera.objects.get(id=response.data["id"])
+        self.assertEqual(camera.active_lens, "wide")
+        self.assertEqual(camera.preferred_lens, "wide")
+        self.assertFalse(camera.supports_lens_switching)
+
     def test_operator_without_manage_cameras_permission_cannot_update_camera(self):
         self.operator_user.profile.permissions = {
             **get_default_operator_permissions(),

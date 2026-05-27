@@ -14,6 +14,9 @@ export interface Violation {
   evidence_image: string | null;
   evidence_download_url?: string | null;
   has_evidence_image: boolean;
+  plate_crop_image: string | null;
+  plate_crop_download_url?: string | null;
+  has_plate_crop_image: boolean;
   bounding_box: unknown;
   detected_objects: unknown;
   processed_at: string;
@@ -73,17 +76,21 @@ export const violationsService = {
     return response.data;
   },
 
-  async getEvidenceBlob(id: number): Promise<Blob> {
+  async getEvidenceBlob(id: number, variant: 'evidence' | 'plate' = 'evidence'): Promise<Blob> {
     const response = await apiClient.get(`/violations/${id}/evidence/`, {
+      params: variant === 'plate' ? { variant: 'plate' } : undefined,
       responseType: 'blob',
     });
     return response.data;
   },
 
-  async downloadEvidence(id: number, downloadUrl?: string | null) {
+  async downloadEvidence(id: number, downloadUrl?: string | null, variant: 'evidence' | 'plate' = 'evidence') {
     const response = await apiClient.get(
-      downloadUrl || `/violations/${id}/evidence/?download=1`,
-      { responseType: 'blob' },
+      downloadUrl || `/violations/${id}/evidence/`,
+      {
+        params: downloadUrl ? undefined : (variant === 'plate' ? { variant: 'plate', download: 1 } : { download: 1 }),
+        responseType: 'blob',
+      },
     );
 
     return {
