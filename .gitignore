@@ -47,3 +47,9 @@ frontend/.env
 
 # YOLO weights (large files)
 *.pt
+
+# Graphify knowledge graph output
+graphify-out/
+
+# Deployment set up
+DEPLOYMENT.md
