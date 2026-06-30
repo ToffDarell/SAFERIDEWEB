@@ -5,6 +5,7 @@ export interface Camera {
   name: string;
   location: string;
   stream_url: string;
+  rtsp_url: string;
   status: 'active' | 'inactive';
   is_live?: boolean;
   last_seen_at: string | null;
@@ -12,37 +13,60 @@ export interface Camera {
   updated_at: string;
 }
 
+export interface CreateCameraPayload {
+  name: string;
+  location: string;
+  camera_ip: string;
+  rtsp_username: string;
+  rtsp_password: string;
+  stream_quality: 'stream1' | 'stream2' | 'stream6' | 'stream7';
+}
+
+export function parseRtspUrl(url: string): {
+  camera_ip: string;
+  rtsp_username: string;
+  rtsp_password: string;
+  stream_quality: string;
+} | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'rtsp:') return null;
+    return {
+      camera_ip: parsed.hostname,
+      rtsp_username: parsed.username,
+      rtsp_password: parsed.password,
+      stream_quality: parsed.pathname.replace(/^\//, ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const camerasService = {
-  // Get all cameras
   async getCameras() {
     const response = await apiClient.get('/cameras/');
     return response.data;
   },
 
-  // Get single camera
   async getCamera(id: number) {
     const response = await apiClient.get(`/cameras/${id}/`);
     return response.data;
   },
 
-  // Create camera
-  async createCamera(data: Partial<Camera>) {
+  async createCamera(data: CreateCameraPayload) {
     const response = await apiClient.post('/cameras/', data);
     return response.data;
   },
 
-  // Update camera
-  async updateCamera(id: number, data: Partial<Camera>) {
+  async updateCamera(id: number, data: Record<string, unknown>) {
     const response = await apiClient.patch(`/cameras/${id}/`, data);
     return response.data;
   },
 
-  // Delete camera
   async deleteCamera(id: number) {
     await apiClient.delete(`/cameras/${id}/`);
   },
 
-  // Get stream URL for camera
   getStreamUrl(id: number): string {
     const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
     const token = localStorage.getItem('accessToken');

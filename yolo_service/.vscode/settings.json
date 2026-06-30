@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "c:/CAPSTONE SAFERIDE WEB/yolo_service/venv_new/Scripts/python.exe",
+  "python.defaultInterpreterPath": "c:/CAPSTONE SAFERIDE WEB/yolo_service/venv/Scripts/python.exe",
   "python.terminal.activateEnvironment": true,
   "python-envs.pythonProjects": [
     {

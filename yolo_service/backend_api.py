@@ -11,6 +11,8 @@ import json
 import cv2
 import requests
 from datetime import datetime
+from dotenv import load_dotenv
+load_dotenv()
 
 
 BASE_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
@@ -170,3 +172,19 @@ def fetch_settings_from_backend():
         conf,   # conf_helmet default = global threshold
         0.60,   # conf_license_plate default
     )
+
+
+def fetch_camera_from_backend(camera_id):
+    """
+    GET /api/cameras/{id}/ and return the camera dict.
+    Returns None if unreachable or not found.
+    """
+    try:
+        url = f"{BASE_URL}/api/cameras/{camera_id}/"
+        response = requests.get(url, headers=_auth_headers('application/json'), timeout=5)
+        if response.status_code == 200:
+            return response.json()
+        print(f"⚠ Camera {camera_id} not found ({response.status_code})")
+    except Exception as e:
+        print(f"⚠ Backend camera fetch failed: {e}")
+    return None

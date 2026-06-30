@@ -1,5 +1,33 @@
+# Core Django
+Django==4.2.8
+djangorestframework==3.14.0
+django-extensions==3.2.3
+django-cors-headers==4.3.1
+django-filter==24.1
+python-decouple==3.8
+
+# Database
+PyMySQL==1.1.0
+
+# Authentication & Security
+djangorestframework-simplejwt==5.5.1
+dj-rest-auth==5.0.2
+django-allauth==0.57.0
 djangorestframework-api-key==3.1.0
+django-recaptcha==4.0.0
+
+# OAuth
 google-auth==2.27.0
+
+# Image Processing & Reporting
 opencv-python==4.8.1.78
+Pillow>=12.2.0
+reportlab>=4.0.0
+
+# Data Processing
 openpyxl==3.1.5
-Pillow==12.1.1
+
+# Utilities
+requests>=2.31.0
+python-dotenv>=1.0.0
+cryptography>=41.0.0

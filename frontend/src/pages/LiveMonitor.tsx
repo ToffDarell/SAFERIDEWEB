@@ -347,7 +347,7 @@ const LiveMonitor = () => {
           <CardContent className="space-y-4 pt-0">
             <div
               ref={focusedFeedRef}
-              className="relative h-[300px] overflow-hidden rounded-lg border border-[#E4E6ED] sm:h-[400px]"
+              className="relative h-[calc(100vh-240px)] min-h-[360  px] overflow-hidden rounded-lg border border-[#E4E6ED]"
               style={{ backgroundColor: '#1A1A2E' }}
             >
               {focusedCamera.status === 'online' ? (

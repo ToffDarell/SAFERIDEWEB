@@ -2,18 +2,36 @@
   "folders": [
     {
       "path": "backend",
-      "name": "Backend"
+      "name": "Backend",
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder:Backend}/venv/Scripts/python.exe",
+        "python.linting.enabled": true,
+        "python.analysis.extraPaths": ["${workspaceFolder:Backend}"]
+      }
     },
     {
       "path": "yolo_service",
-      "name": "YOLO Service"
+      "name": "YOLO Service",
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder:YOLO Service}/venv/Scripts/python.exe",
+        "python.linting.enabled": true,
+        "python.analysis.extraPaths": ["${workspaceFolder:YOLO Service}"]
+      }
     },
     {
       "path": "frontend",
-      "name": "Frontend"
+      "name": "Frontend",
+      "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true
+      }
     }
   ],
   "settings": {
-    "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe"
+    "python.linting.enabled": true,
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.python",
+      "editor.formatOnSave": true
+    }
   }
 }

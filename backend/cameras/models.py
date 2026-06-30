@@ -60,6 +60,7 @@ class Camera(models.Model):
     name = models.CharField(max_length=200)
     location = models.CharField(max_length=500, blank=True)
     stream_url = models.CharField(max_length=500, blank=True)
+    rtsp_url = models.CharField(max_length=500, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     last_seen_at = models.DateTimeField(null=True, blank=True)
     active_lens = models.CharField(max_length=20, choices=LENS_CHOICES, default='wide')

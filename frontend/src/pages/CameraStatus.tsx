@@ -16,19 +16,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { Camera, Wifi, WifiOff, Activity, Eye, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react';
-import { camerasService, type Camera as CameraType } from '@/services/cameras';
+import { camerasService, parseRtspUrl, type Camera as CameraType } from '@/services/cameras';
 import { useToast } from '@/hooks/use-toast';
 
 type CameraFormState = {
   name: string;
   location: string;
-  stream_url: string;
+  camera_ip: string;
+  rtsp_username: string;
+  rtsp_password: string;
+  stream_quality: string;
 };
 
 const EMPTY_CAMERA_FORM: CameraFormState = {
   name: '',
   location: '',
-  stream_url: '',
+  camera_ip: '',
+  rtsp_username: '',
+  rtsp_password: '',
+  stream_quality: 'stream1',
 };
 
 const CameraStatus = () => {
@@ -140,10 +146,14 @@ const CameraStatus = () => {
 
   const openEditDialog = (camera: CameraType) => {
     setEditingCamera(camera);
+    const parsed = parseRtspUrl(camera.rtsp_url || '');
     setCameraForm({
       name: camera.name || '',
       location: camera.location || '',
-      stream_url: camera.stream_url || '',
+      camera_ip: parsed?.camera_ip || '',
+      rtsp_username: parsed?.rtsp_username || '',
+      rtsp_password: parsed?.rtsp_password || '',
+      stream_quality: parsed?.stream_quality || 'stream1',
     });
     setCameraFormError('');
     setIsManageDialogOpen(true);
@@ -153,14 +163,30 @@ const CameraStatus = () => {
   const handleCameraSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const payload = {
+    const payload: Record<string, string | undefined> = {
       name: cameraForm.name.trim(),
       location: cameraForm.location.trim(),
-      stream_url: cameraForm.stream_url.trim(),
     };
+
+    if (editingCamera) {
+      payload.camera_ip = cameraForm.camera_ip.trim() || undefined;
+      payload.rtsp_username = cameraForm.rtsp_username.trim() || undefined;
+      payload.rtsp_password = cameraForm.rtsp_password || undefined;
+      payload.stream_quality = cameraForm.stream_quality || undefined;
+    } else {
+      payload.camera_ip = cameraForm.camera_ip.trim();
+      payload.rtsp_username = cameraForm.rtsp_username.trim();
+      payload.rtsp_password = cameraForm.rtsp_password;
+      payload.stream_quality = cameraForm.stream_quality;
+    }
 
     if (!payload.name) {
       setCameraFormError('Camera name is required.');
+      return;
+    }
+
+    if (!editingCamera && !payload.camera_ip) {
+      setCameraFormError('Camera IP address is required.');
       return;
     }
 
@@ -170,7 +196,7 @@ const CameraStatus = () => {
     try {
       const savedCamera = editingCamera
         ? await camerasService.updateCamera(editingCamera.id, payload)
-        : await camerasService.createCamera(payload);
+        : await camerasService.createCamera(payload as any);
 
       if (selectedCamera?.id === savedCamera.id) {
         setSelectedCamera(savedCamera);
@@ -559,18 +585,55 @@ const CameraStatus = () => {
                 disabled={isSavingCamera}
               />
             </div>
-            <div className="space-y-2">
-              <label className="app-label-text" htmlFor="camera-stream-url">Stream URL</label>
-              <Input
-                id="camera-stream-url"
-                value={cameraForm.stream_url}
-                onChange={(event) => setCameraForm((current) => ({ ...current, stream_url: event.target.value }))}
-                placeholder="e.g. http://127.0.0.1:8081/stream"
-                disabled={isSavingCamera}
-              />
-              <p className="app-hint-text">
-                Optional. The YOLO heartbeat can update this automatically when the camera service is online.
-              </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="app-label-text" htmlFor="camera-ip">Camera IP</label>
+                <Input
+                  id="camera-ip"
+                  value={cameraForm.camera_ip}
+                  onChange={(event) => setCameraForm((current) => ({ ...current, camera_ip: event.target.value }))}
+                  placeholder="e.g. 192.168.1.100"
+                  disabled={isSavingCamera}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="app-label-text" htmlFor="stream-quality">Stream Quality</label>
+                <select
+                  id="stream-quality"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={cameraForm.stream_quality}
+                  onChange={(event) => setCameraForm((current) => ({ ...current, stream_quality: event.target.value }))}
+                  disabled={isSavingCamera}
+                >
+                  <option value="stream1">Wide HQ</option>
+                  <option value="stream2">Wide LQ</option>
+                  <option value="stream6">Tele HQ</option>
+                  <option value="stream7">Tele LQ</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="app-label-text" htmlFor="rtsp-username">RTSP Username</label>
+                <Input
+                  id="rtsp-username"
+                  value={cameraForm.rtsp_username}
+                  onChange={(event) => setCameraForm((current) => ({ ...current, rtsp_username: event.target.value }))}
+                  placeholder="e.g. admin"
+                  disabled={isSavingCamera}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="app-label-text" htmlFor="rtsp-password">RTSP Password</label>
+                <Input
+                  id="rtsp-password"
+                  type="password"
+                  value={cameraForm.rtsp_password}
+                  onChange={(event) => setCameraForm((current) => ({ ...current, rtsp_password: event.target.value }))}
+                  placeholder={editingCamera ? 'Leave blank to keep current' : 'e.g. password123'}
+                  disabled={isSavingCamera}
+                />
+              </div>
             </div>
             {cameraFormError && (
               <p className="text-[12px] text-destructive">{cameraFormError}</p>

@@ -24,10 +24,15 @@ class CameraViewSet(viewsets.ModelViewSet):
     serializer_class = CameraSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [CanAccessCameraData()]
+        auth_header = self.request.headers.get("Authorization", "")
+        is_api_key = auth_header.startswith("Api-Key ")
+
         if self.action == 'heartbeat':
             return [IsYoloService()]
+        if self.action in ['list', 'retrieve']:
+            if is_api_key:
+                return [IsYoloService()]
+            return [CanAccessCameraData()]
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [CanManageCameras()]
         return [IsAdmin()]
