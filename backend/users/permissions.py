@@ -119,6 +119,22 @@ class CanManageCameras(HasApprovedPermission):
     message = "You do not have permission to manage cameras."
 
 
+class CanManageDetection(HasApprovedPermission):
+    permission_keys = ("can_manage_detection",)
+    message = "You do not have permission to manage detection settings."
+
+
+class IsAdminOrCanManageDetection(BasePermission):
+    """Allow admin OR operator with can_manage_detection permission."""
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if is_admin_user(user):
+            return True
+        return has_user_permission(user, "can_manage_detection")
+
+
 class IsAdmin(BasePermission):
     def has_permission(self, request, view):
         user = request.user

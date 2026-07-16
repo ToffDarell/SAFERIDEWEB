@@ -12,7 +12,7 @@ class SystemSettings(models.Model):
 
     # Detection YOLO
     confidence_threshold = models.FloatField(default=0.60)
-    send_cooldown_seconds = models.IntegerField(default=3.0)
+    send_cooldown_seconds = models.FloatField(default=3.0)
     data_retention_days = models.IntegerField(default=90)
 
     # Per-class confidence thresholds

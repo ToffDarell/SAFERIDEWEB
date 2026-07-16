@@ -76,6 +76,10 @@ export const authService = {
   },
 
   logout() {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (refreshToken) {
+      apiClient.post("/auth/logout/", { refresh: refreshToken }).catch(() => {});
+    }
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("currentUser");

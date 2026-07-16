@@ -1,26 +1,15 @@
-import { useEffect, useState } from 'react';
-import apiClient from '@/services/api';
+import { useEffect, useRef, useState } from 'react';
+import { notificationsService, type AdminNotification } from '@/services/notifications';
 
-export interface AdminNotification {
-  id: number;
-  notification_type: string;
-  title: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-  actor: number | null;
-  actor_name: string | null;
-  actor_role: string | null;
-  violation: number | null;
-  violation_id: number | null;
-}
-    
+export type { AdminNotification };
+
 export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   const isAdmin = currentUser.role === 'admin';
 
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading] = useState(isAdmin);
+  const lastMutationAt = useRef(0);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -37,11 +26,9 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
       }
 
       try {
-        const response = await apiClient.get('/users/admin-notifications/', {
-          params: { scope },
-        });
+        const response = await notificationsService.getAdminNotifications(false, scope);
         if (isMounted) {
-          setNotifications(response.data || []);
+          setNotifications(response || []);
         }
       } catch (error) {
         if (isMounted) {
@@ -55,7 +42,10 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
     };
 
     loadNotifications(true);
-    const interval = setInterval(() => loadNotifications(false), 30000);
+    const interval = setInterval(() => {
+      if (Date.now() - lastMutationAt.current < 2000) return;
+      loadNotifications(false);
+    }, 30000);
 
     return () => {
       isMounted = false;
@@ -65,6 +55,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
 
   const markAsRead = async (notificationId: number) => {
     if (!isAdmin) return;
+    lastMutationAt.current = Date.now();
 
     setNotifications((prev) =>
       prev.map((notification) =>
@@ -75,7 +66,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
     );
 
     try {
-      await apiClient.post(`/users/admin-notifications/${notificationId}/mark-read/`);
+      await notificationsService.markAdminNotificationRead(notificationId);
     } catch (error) {
       setNotifications((prev) =>
         prev.map((notification) =>
@@ -90,6 +81,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
 
   const markAllAsRead = async () => {
     if (!isAdmin) return;
+    lastMutationAt.current = Date.now();
 
     const previousNotifications = notifications;
     setNotifications((prev) =>
@@ -97,9 +89,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
     );
 
     try {
-      await apiClient.post('/users/admin-notifications/mark-all-read/', null, {
-        params: { scope },
-      });
+      await notificationsService.markAllAdminNotificationsRead(scope);
     } catch (error) {
       setNotifications(previousNotifications);
       console.error('Failed to mark all admin notifications as read:', error);
@@ -108,6 +98,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
 
   const deleteNotification = async (notificationId: number) => {
     if (!isAdmin) return;
+    lastMutationAt.current = Date.now();
 
     const previousNotifications = notifications;
     setNotifications((prev) =>
@@ -115,7 +106,7 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
     );
 
     try {
-      await apiClient.delete(`/users/admin-notifications/${notificationId}/delete/`);
+      await notificationsService.deleteAdminNotification(notificationId);
     } catch (error) {
       setNotifications(previousNotifications);
       console.error('Failed to delete admin notification:', error);

@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { Camera, Wifi, WifiOff, Activity, Eye, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react';
 import { camerasService, parseRtspUrl, type Camera as CameraType } from '@/services/cameras';
+import { violationsService } from '@/services/violations';
 import { useToast } from '@/hooks/use-toast';
 
 type CameraFormState = {
@@ -77,15 +78,7 @@ const CameraStatus = () => {
     await Promise.all(
       cameraList.map(async (cam) => {
         try {
-          const res = await fetch(
-            `http://127.0.0.1:8000/api/violations/?camera=${cam.id}&date=${today}`,
-            {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-              },
-            }
-          );
-          const data = await res.json();
+          const data = await violationsService.getViolations({ camera: cam.id, date: today });
           counts[cam.id] = data.count ?? (data.results?.length ?? 0);
         } catch {
           counts[cam.id] = 0;

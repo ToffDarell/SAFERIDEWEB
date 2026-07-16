@@ -134,7 +134,7 @@ def fetch_settings_from_backend():
     Fetch detection settings from the Django backend.
     Falls back to .env defaults if the backend is unreachable.
     Returns: (conf_threshold, send_cooldown, data_retention_days, ocr_conf,
-              conf_no_helmet, conf_nutshell, conf_helmet)
+              conf_no_helmet, conf_nutshell, conf_helmet, conf_license_plate)
     """
     try:
         url = f"{BASE_URL}/api/settings/"

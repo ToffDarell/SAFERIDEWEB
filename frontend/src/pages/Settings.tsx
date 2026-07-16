@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -13,9 +13,15 @@ import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Came
 import { useToast } from '@/hooks/use-toast';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { API_BASE } from '@/config';
 import apiClient from '@/services/api';
 import { usersService } from '@/services/users';
+import { settingsService } from '@/services/settings';
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { normalizePermissions, PERMISSION_TOGGLE_ITEMS, type PermissionKey } from '@/lib/permissions';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -64,6 +70,64 @@ const Settings = () => {
     conf_helmet: 0.60,
     conf_license_plate: 0.60,
   });
+  const [loadingDetection, setLoadingDetection] = useState(true);
+
+  const DETECTION_PRESETS = {
+    balanced: {
+      label: 'Balanced',
+      description: 'This will restore the recommended default detection settings. Current custom values will be overwritten.',
+      values: {
+        confidence_threshold: 0.60,
+        conf_no_helmet: 0.75,
+        conf_nutshell: 0.80,
+        conf_helmet: 0.70,
+        conf_license_plate: 0.65,
+        ocr_confidence: 0.60,
+      },
+    },
+    sensitive: {
+      label: 'Sensitive',
+      description: 'Sensitive mode lowers all thresholds to catch more potential violations. This may increase false positives in unclear frames or poor lighting conditions. Use this in high-traffic areas.',
+      values: {
+        confidence_threshold: 0.45,
+        conf_no_helmet: 0.55,
+        conf_nutshell: 0.60,
+        conf_helmet: 0.50,
+        conf_license_plate: 0.50,
+        ocr_confidence: 0.40,
+      },
+    },
+    strict: {
+      label: 'Strict',
+      description: 'Strict mode raises all thresholds to reduce false positives. The system will only record violations it is highly confident about. Some real violations in poor lighting or at distance may be missed.',
+      values: {
+        confidence_threshold: 0.75,
+        conf_no_helmet: 0.85,
+        conf_nutshell: 0.88,
+        conf_helmet: 0.80,
+        conf_license_plate: 0.78,
+        ocr_confidence: 0.75,
+      },
+    },
+  } as const;
+
+  const [detectionMode, setDetectionMode] = useState<'balanced' | 'sensitive' | 'strict' | 'custom'>('balanced');
+  const [confirmPreset, setConfirmPreset] = useState<{ mode: 'balanced' | 'sensitive' | 'strict'; label: string; description: string } | null>(null);
+  const settingsLoadedRef = useRef(false);
+
+  const handlePresetClick = (mode: 'balanced' | 'sensitive' | 'strict') => {
+    const preset = DETECTION_PRESETS[mode];
+    setConfirmPreset({ mode, label: preset.label, description: preset.description });
+  };
+
+  const confirmApplyPreset = () => {
+    if (!confirmPreset) return;
+    const preset = DETECTION_PRESETS[confirmPreset.mode];
+    setDetectionSettings(s => ({ ...s, ...preset.values }));
+    setDetectionMode(confirmPreset.mode);
+    toast({ title: `Detection preset applied: ${confirmPreset.label}` });
+    setConfirmPreset(null);
+  };
 
   // Notification Settings state (persisted to localStorage)
   const [notificationSettings, setNotificationSettings] = useState(() => {
@@ -126,6 +190,8 @@ const Settings = () => {
     }
   }, [activeTab, isAdmin, setSearchParams]);
 
+
+
   const formatActivityTime = (value: string) => {
     if (!value) return 'Unknown time';
     const parsed = new Date(value);
@@ -165,21 +231,45 @@ const Settings = () => {
     String(user?.profile?.status ?? user?.status ?? 'approved').toLowerCase();
 
   const loadSystemSettings = async () => {
+    setLoadingDetection(true);
     try {
-      const resp = await fetch(`${API_BASE}/settings/`, { headers: getAuthHeaders() });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setDetectionSettings({
-        confidence_threshold:  data.confidence_threshold  != null ? parseFloat(data.confidence_threshold)  : 0.60,
-        send_cooldown_seconds: data.send_cooldown_seconds != null ? parseFloat(data.send_cooldown_seconds) : 3.0,
-        data_retention_days:   data.data_retention_days  != null ? parseInt(data.data_retention_days)     : 90,
-        ocr_confidence:        data.ocr_confidence        != null ? parseFloat(data.ocr_confidence)        : 0.20,
-        conf_no_helmet:        data.conf_no_helmet         != null ? parseFloat(data.conf_no_helmet)        : 0.55,
-        conf_nutshell:         data.conf_nutshell          != null ? parseFloat(data.conf_nutshell)         : 0.65,
-        conf_helmet:           data.conf_helmet            != null ? parseFloat(data.conf_helmet)           : 0.60,
-        conf_license_plate:    data.conf_license_plate     != null ? parseFloat(data.conf_license_plate)    : 0.60,
-      });
-    } catch {}
+      const data = await settingsService.getSettings();
+      const newSettings = {
+        confidence_threshold:  data.confidence_threshold  ?? 0.60,
+        send_cooldown_seconds: data.send_cooldown_seconds ?? 3.0,
+        data_retention_days:   data.data_retention_days   ?? 90,
+        ocr_confidence:        data.ocr_confidence        ?? 0.20,
+        conf_no_helmet:        data.conf_no_helmet         ?? 0.55,
+        conf_nutshell:         data.conf_nutshell          ?? 0.65,
+        conf_helmet:           data.conf_helmet            ?? 0.60,
+        conf_license_plate:    data.conf_license_plate     ?? 0.60,
+      };
+      setDetectionSettings(newSettings);
+      // Only detect preset on first load; skip on subsequent calls to preserve user's selection
+      if (!settingsLoadedRef.current) {
+        const matched = (['balanced', 'sensitive', 'strict'] as const).find(key =>
+          Object.entries(DETECTION_PRESETS[key].values).every(([k, v]) =>
+            Math.abs(Number(newSettings[k as keyof typeof newSettings]) - v) < 0.001
+          )
+        );
+        setDetectionMode(matched ?? 'custom');
+        settingsLoadedRef.current = true;
+      }
+    } catch {} finally {
+      setLoadingDetection(false);
+    }
+  };
+
+  const applyPreset = () => {
+    const mode = pendingModeRef.current;
+    if (!mode) return;
+    const preset = DETECTION_PRESETS[mode];
+    setDetectionSettings(s => ({ ...s, ...preset.values }));
+    setDetectionMode(mode);
+    toast({ title: `Detection preset applied: ${preset.label}` });
+    setPresetDialogOpen(false);
+    setPendingMode(null);
+    pendingModeRef.current = null;
   };
 
   // ── Manage Users helpers ──────────────────────────────────────────────────────
@@ -250,10 +340,8 @@ const Settings = () => {
   const loadPending = async () => {
     setLoadingPending(true);
     try {
-      const resp = await fetch(`${API_BASE}/users/pending/`, { headers: getAuthHeaders() });
-      if (!resp.ok) throw new Error(await resp.text());
-      const data = await resp.json();
-      setPendingList(Array.isArray(data) ? data : (data.results ?? []));
+      const data = await usersService.getPendingUsers();
+      setPendingList(data);
     } catch (err: any) {
       toast({ title: 'Error', description: err?.message ?? 'Could not load pending users.', variant: 'destructive' });
     } finally {
@@ -270,11 +358,11 @@ const Settings = () => {
   const handleApproveOrReject = async (userId: number, action: 'approve' | 'reject', name: string) => {
     setProcessingId(userId);
     try {
-      const resp = await fetch(`${API_BASE}/users/${userId}/${action}/`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      if (!resp.ok) throw new Error(await resp.text());
+      if (action === 'approve') {
+        await usersService.approveUser(userId);
+      } else {
+        await usersService.rejectUser(userId);
+      }
 
       const nextStatus = action === 'approve' ? 'approved' : 'rejected';
       setPendingList((prev) => prev.filter((u) => u.id !== userId));
@@ -309,17 +397,9 @@ const Settings = () => {
     if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
     setDeletingUserId(userId);
     try {
-      const resp = await fetch(`${API_BASE}/users/${userId}/`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      });
-      if (resp.status === 204 || resp.ok) {
-        setUsersList((prev) => prev.filter((u) => u.id !== userId));
-        toast({ title: 'User Deleted', description: `"${username}" has been removed.` });
-      } else {
-        const body = await resp.text();
-        throw new Error(body);
-      }
+      await usersService.deleteUser(userId);
+      setUsersList((prev) => prev.filter((u) => u.id !== userId));
+      toast({ title: 'User Deleted', description: `"${username}" has been removed.` });
     } catch (err: any) {
       toast({ title: 'Delete Failed', description: err?.message ?? 'Could not delete user.', variant: 'destructive' });
     } finally {
@@ -435,12 +515,7 @@ const Settings = () => {
         const [first_name, ...rest] = (name ?? '').split(' ');
         const last_name = rest.join(' ');
 
-        const resp = await fetch(`${API_BASE}/users/me/`, {
-          method: 'PATCH',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ first_name, last_name, email }),
-        });
-        if (!resp.ok) throw new Error(await resp.text());
+        await usersService.updateMe({ first_name, last_name, email });
         await refreshCurrentUser();
       }
 
@@ -458,24 +533,27 @@ const Settings = () => {
           return;
         }
 
-        const resp = await fetch(`${API_BASE}/users/change-password/`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
-        });
-        if (!resp.ok) throw new Error(await resp.text());
+        await usersService.changePassword(currentPw, newPw);
       }
 
       if (section === 'Detection') {
-        const resp = await fetch(`${API_BASE}/settings/`, {
-          method: 'PATCH',
-          headers: getAuthHeaders(),
-          body: JSON.stringify(detectionSettings),
-        });
-        if (!resp.ok) throw new Error(await resp.text());
+        await settingsService.updateSettings(detectionSettings);
+        // Re-detect which preset matches saved values
+        const saved = await settingsService.getSettings();
+        const matched = (['balanced', 'sensitive', 'strict'] as const).find(key =>
+          Object.entries(DETECTION_PRESETS[key].values).every(([k, v]) =>
+            Math.abs(Number(saved[k as keyof typeof saved] ?? 0) - v) < 0.001
+          )
+        );
+        setDetectionMode(matched ?? 'custom');
+      }
+
+      if (section === 'Security') {
+        await settingsService.updateSettings({ data_retention_days: detectionSettings.data_retention_days });
       }
 
       if (section === 'Notifications') {
+        await settingsService.updateSettings({ send_cooldown_seconds: detectionSettings.send_cooldown_seconds });
         localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
       }
 
@@ -510,31 +588,12 @@ const Settings = () => {
 
     setCreatingOperator(true);
     try {
-      const resp = await fetch(`${API_BASE}/users/create-operator/`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(newOperator),
-      });
-
-      const ctype = resp.headers.get('content-type') || '';
-      let json: any = null;
-
-      if (ctype.includes('application/json')) {
-        json = await resp.json();
-      } else {
-        // Non-JSON (likely HTML error page) — include text in error for debugging
-        const text = await resp.text();
-        throw new Error(`Unexpected non-JSON response from server: ${text.slice(0, 1000)}`);
-      }
-
-      if (!resp.ok) {
-        throw new Error(json?.error || json?.detail || "Failed to create operator.");
-      }
-
+      const result = await usersService.createOperator(newOperator);
       toast({
         title: newOperator.role === 'admin' ? 'TMC Administrator Created' : 'Operator Created',
-        description: json.detail ?? `User ${newOperator.name || newOperator.email} has been added.`,
+        description: result.detail ?? `User ${newOperator.name || newOperator.email} has been added.`,
       });
+
       setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
       setShowAddOperator(false);
       if (showManageUsers) {
@@ -584,10 +643,12 @@ const Settings = () => {
               <Palette className="w-4 h-4" />
               {isMobile ? 'Preferences' : 'UI & Preferences'}
             </TabsTrigger>
-            <TabsTrigger value="detection" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
-              <Monitor className="w-4 h-4" />
-              Detection
-            </TabsTrigger>
+            {(isAdmin || currentUser?.permissions?.can_manage_detection) && (
+              <TabsTrigger value="detection" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
+                <Monitor className="w-4 h-4" />
+                Detection
+              </TabsTrigger>
+            )}
             {isAdmin && (
               <TabsTrigger value="activity" className="h-auto min-w-[132px] shrink-0 justify-start gap-2 rounded-lg px-3 py-2 text-left sm:min-w-0 sm:flex-1 sm:justify-center">
                 <History className="w-4 h-4" />
@@ -685,12 +746,18 @@ const Settings = () => {
               {isAdmin && (
                 <>
                   <Separator />
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>Admin Only:</strong> Configure global password policies in the System tab.
-                    </AlertDescription>
-                  </Alert>
+                  <div className="space-y-2">
+                    <Label htmlFor="data-retention">Data Retention (days)</Label>
+                    <p className="app-hint-text">How many days to keep violation records in the database before auto-deletion.</p>
+                    <Input
+                      id="data-retention" type="number" min="7" max="365"
+                      value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
+                      onChange={(e) => setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))}
+                    />
+                  </div>
+                  <Button onClick={() => handleSave('Security')} disabled={savingSection === 'Security'}>
+                    {savingSection === 'Security' ? 'Saving...' : 'Save Security Settings'}
+                  </Button>
                 </>
               )}
             </CardContent>
@@ -772,8 +839,24 @@ const Settings = () => {
 
               </div>
 
+              <Separator />
+
+              <div className="space-y-2">
+                <Label>Alert Cooldown - <span className="text-foreground font-medium">
+                  {isNaN(detectionSettings.send_cooldown_seconds) ? '3.0s' : `${detectionSettings.send_cooldown_seconds}s`}
+                </span></Label>
+                <p className="app-hint-text">Minimum seconds between violation alerts sent to the server. Prevents duplicate detections.</p>
+                <input
+                  type="range" min="1" max="30" step="0.5"
+                  value={isNaN(detectionSettings.send_cooldown_seconds) ? 3.0 : detectionSettings.send_cooldown_seconds}
+                  onChange={(e) => setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))}
+                  className="w-full accent-primary"
+                />
+                <div className="app-hint-text flex justify-between"><span>1s (Fast)</span><span>30s (Slow)</span></div>
+              </div>
+
               <Button onClick={() => handleSave('Notifications')} disabled={savingSection === 'Notifications'}>
-                {savingSection === 'Notifications' ? 'Saving...' : 'Save Preferences'}
+                {savingSection === 'Notifications' ? 'Saving...' : 'Save Notification Settings'}
               </Button>
             </CardContent>
           </Card>
@@ -852,7 +935,7 @@ const Settings = () => {
           </Card>
         </TabsContent>
 
-        {/* Detection Settings - Read-only for TMC Operators */}
+        {/* Detection Settings */}
         <TabsContent value="detection" className="space-y-6">
           <Card className="bg-card border-border">
             <CardHeader>
@@ -860,277 +943,169 @@ const Settings = () => {
                 <Monitor className="w-5 h-5 text-primary" />
                 <div>
                   <CardTitle>AI Detection Configuration</CardTitle>
-                  <CardDescription>{isAdmin ? 'Configure detection parameters' : 'View current detection configuration (read-only)'}</CardDescription>
+                  <CardDescription>
+                    {isAdmin
+                      ? 'Configure detection parameters'
+                      : currentUser?.permissions?.can_manage_detection
+                        ? 'Configure detection parameters'
+                        : 'View current detection configuration (read-only)'}
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
+            {loadingDetection ? (
+              <div className="flex justify-center py-10">
+                <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
+              </div>
+            ) : (
             <CardContent className="space-y-6">
-              {!isAdmin && (
+              {!isAdmin && !currentUser?.permissions?.can_manage_detection && (
                 <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[13px] text-foreground">
                   <Eye className="w-4 h-4 shrink-0 text-primary" />
                   <span>Read-only view. Contact an administrator to modify detection settings.</span>
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="confidence-threshold">
-                    Confidence Threshold - <span className="text-foreground font-medium">
-                      {isNaN(detectionSettings.confidence_threshold)
-                        ? '60'
-                        : (detectionSettings.confidence_threshold * 100).toFixed(0)}%
-                    </span>
-                  </Label>
-                <p className="app-hint-text">
-                    YOLO inference floor - applies to all classes before per-class thresholds. Keep this {"<="} your lowest per-class value below.
-                  </p>
-                  <input
-                    id="confidence-threshold"
-                    type="range"
-                    min="0.30"
-                    max="0.95"
-                    step="0.05"
-                    value={isNaN(detectionSettings.confidence_threshold) ? 0.60 : detectionSettings.confidence_threshold}
-                    onChange={(e) =>
-                      setDetectionSettings(s => ({ ...s, confidence_threshold: parseFloat(e.target.value) }))
-                    }
-                    disabled={!isAdmin}
-                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <div className="app-hint-text flex justify-between">
-                    <span>30% (Sensitive)</span>
-                    <span>95% (Strict)</span>
+              {(isAdmin || currentUser?.permissions?.can_manage_detection) && (
+                <div className="space-y-3">
+                  <Label className="app-label-text font-medium">Detection Mode</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {(['balanced', 'sensitive', 'strict', 'custom'] as const).map((mode) => {
+                      const label = mode === 'custom' ? 'Custom' : DETECTION_PRESETS[mode].label;
+                      return (
+                        <Button
+                          key={mode}
+                          variant={detectionMode === mode ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => mode === 'custom' ? setDetectionMode('custom') : handlePresetClick(mode)}
+                        >
+                          {label}
+                        </Button>
+                      );
+                    })}
                   </div>
-                  {/* Warning: global threshold overrides per-class values */}
-                  {(() => {
-                    const global = detectionSettings.confidence_threshold;
-                    const blocked = [
-                      detectionSettings.conf_no_helmet < global && 'No Helmet',
-                      detectionSettings.conf_nutshell  < global && 'Nutshell',
-                      detectionSettings.conf_helmet    < global && 'Helmet',
-                      detectionSettings.conf_license_plate < global && 'License Plate',
-                    ].filter(Boolean);
-                    return blocked.length > 0 ? (
-                      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-foreground">
-                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
-                        <span>
-                          <strong>Warning:</strong> Global threshold ({(global * 100).toFixed(0)}%) is higher than the per-class threshold for <strong>{blocked.join(', ')}</strong>. These classes will never be detected. Lower the global threshold or raise the per-class values.
+                  <p className="app-hint-text">
+                    {detectionMode === 'custom'
+                      ? 'Manually adjust individual thresholds below.'
+                    : `Using ${DETECTION_PRESETS[detectionMode].label} preset. Switch to Custom to manually adjust.`}
+                  </p>
+                </div>
+              )}
+
+              <Separator />
+
+              {(isAdmin || currentUser?.permissions?.can_manage_detection) ? (
+                detectionMode === 'custom' ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="confidence-threshold">
+                        Confidence Threshold - <span className="text-foreground font-medium">
+                          {isNaN(detectionSettings.confidence_threshold) ? '60' : (detectionSettings.confidence_threshold * 100).toFixed(0)}%
                         </span>
+                      </Label>
+                      <p className="app-hint-text">YOLO inference floor - applies to all classes before per-class thresholds. Keep this {"<="} your lowest per-class value below.</p>
+                      <input id="confidence-threshold" type="range" min="0.30" max="0.95" step="0.05"
+                        value={isNaN(detectionSettings.confidence_threshold) ? 0.60 : detectionSettings.confidence_threshold}
+                        onChange={(e) => setDetectionSettings(s => ({ ...s, confidence_threshold: parseFloat(e.target.value) }))}
+                        className="w-full accent-primary" />
+                      <div className="app-hint-text flex justify-between"><span>30% (Sensitive)</span><span>95% (Strict)</span></div>
+                    </div>
+                    <Separator />
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="app-label-text font-medium">Per-Class Confidence Thresholds</Label>
+                        <p className="app-hint-text mt-1">Fine-tune sensitivity per detection class. Must be {">="} the global threshold above to have effect.</p>
                       </div>
-                    ) : null;
-                  })()}
-                </div>
-
-                <Separator />
-
-                {/* Per-class confidence thresholds */}
-                <div className="space-y-4">
-                  <div>
-                    <Label className="app-label-text font-medium">Per-Class Confidence Thresholds</Label>
-                    <p className="app-hint-text mt-1">
-                      Fine-tune sensitivity per detection class. Must be {">="} the global threshold above to have effect.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="conf-no-helmet">
-                      No Helmet - <span className="text-foreground font-medium">
-                        {(detectionSettings.conf_no_helmet * 100).toFixed(0)}%
-                      </span>
-                    </Label>
-                    <p className="app-hint-text">Lower = catches more violators. Raise if getting false positives.</p>
-                    <input
-                      id="conf-no-helmet"
-                      type="range"
-                      min="0.30"
-                      max="0.95"
-                      step="0.05"
-                      value={detectionSettings.conf_no_helmet}
-                      onChange={(e) =>
-                        setDetectionSettings(s => ({ ...s, conf_no_helmet: parseFloat(e.target.value) }))
-                      }
-                      disabled={!isAdmin}
-                      className="w-full accent-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <div className="app-hint-text flex justify-between">
-                      <span>30% (Lenient)</span>
-                      <span>95% (Strict)</span>
+                      <div className="space-y-2">
+                        <Label>No Helmet - <span className="text-foreground font-medium">{(detectionSettings.conf_no_helmet * 100).toFixed(0)}%</span></Label>
+                        <p className="app-hint-text">Lower = catches more violators. Raise if getting false positives.</p>
+                        <input type="range" min="0.30" max="0.95" step="0.05" value={detectionSettings.conf_no_helmet}
+                          onChange={(e) => setDetectionSettings(s => ({ ...s, conf_no_helmet: parseFloat(e.target.value) }))}
+                          className="w-full accent-destructive" />
+                        <div className="app-hint-text flex justify-between"><span>30% (Lenient)</span><span>95% (Strict)</span></div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Nutshell (Half-Helmet) - <span className="text-foreground font-medium">{(detectionSettings.conf_nutshell * 100).toFixed(0)}%</span></Label>
+                        <p className="app-hint-text">Keep higher to avoid misidentifying full helmets as nutshells.</p>
+                        <input type="range" min="0.30" max="0.95" step="0.05" value={detectionSettings.conf_nutshell}
+                          onChange={(e) => setDetectionSettings(s => ({ ...s, conf_nutshell: parseFloat(e.target.value) }))}
+                          className="w-full accent-orange-500" />
+                        <div className="app-hint-text flex justify-between"><span>30% (Lenient)</span><span>95% (Strict)</span></div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Helmet (Compliant) - <span className="text-foreground font-medium">{(detectionSettings.conf_helmet * 100).toFixed(0)}%</span></Label>
+                        <p className="app-hint-text">Minimum confidence to mark a rider as compliant.</p>
+                        <input type="range" min="0.30" max="0.95" step="0.05" value={detectionSettings.conf_helmet}
+                          onChange={(e) => setDetectionSettings(s => ({ ...s, conf_helmet: parseFloat(e.target.value) }))}
+                          className="w-full accent-green-500" />
+                        <div className="app-hint-text flex justify-between"><span>30% (Lenient)</span><span>95% (Strict)</span></div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>License Plate Detection - <span className="text-foreground font-medium">{(detectionSettings.conf_license_plate * 100).toFixed(0)}%</span></Label>
+                        <p className="app-hint-text">Minimum YOLO confidence to attempt reading a plate. Lower if plates are being missed.</p>
+                        <input type="range" min="0.30" max="0.95" step="0.05" value={detectionSettings.conf_license_plate}
+                          onChange={(e) => setDetectionSettings(s => ({ ...s, conf_license_plate: parseFloat(e.target.value) }))}
+                          className="w-full accent-cyan-500" />
+                        <div className="app-hint-text flex justify-between"><span>30% (Lenient)</span><span>95% (Strict)</span></div>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="conf-nutshell">
-                      Nutshell (Half-Helmet) - <span className="text-foreground font-medium">
-                        {(detectionSettings.conf_nutshell * 100).toFixed(0)}%
-                      </span>
-                    </Label>
-                    <p className="app-hint-text">Keep higher to avoid misidentifying full helmets as nutshells.</p>
-                    <input
-                      id="conf-nutshell"
-                      type="range"
-                      min="0.30"
-                      max="0.95"
-                      step="0.05"
-                      value={detectionSettings.conf_nutshell}
-                      onChange={(e) =>
-                        setDetectionSettings(s => ({ ...s, conf_nutshell: parseFloat(e.target.value) }))
-                      }
-                      disabled={!isAdmin}
-                      className="w-full accent-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <div className="app-hint-text flex justify-between">
-                      <span>30% (Lenient)</span>
-                      <span>95% (Strict)</span>
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label>OCR Confidence - <span className="text-foreground font-medium">{isNaN(detectionSettings.ocr_confidence) ? '20' : (detectionSettings.ocr_confidence * 100).toFixed(0)}%</span></Label>
+                      <p className="app-hint-text">Minimum confidence EasyOCR must have to accept a plate reading. Lower = more plate reads, more errors.</p>
+                      <input type="range" min="0.10" max="0.90" step="0.05" value={isNaN(detectionSettings.ocr_confidence) ? 0.20 : detectionSettings.ocr_confidence}
+                        onChange={(e) => setDetectionSettings(s => ({ ...s, ocr_confidence: parseFloat(e.target.value) }))}
+                        className="w-full accent-primary" />
+                      <div className="app-hint-text flex justify-between"><span>10% (Permissive)</span><span>90% (Strict)</span></div>
                     </div>
-                  </div>
-
+                  </>
+                ) : (
                   <div className="space-y-2">
-                    <Label htmlFor="conf-helmet">
-                      Helmet (Compliant) - <span className="text-foreground font-medium">
-                        {(detectionSettings.conf_helmet * 100).toFixed(0)}%
-                      </span>
-                    </Label>
-                    <p className="app-hint-text">Minimum confidence to mark a rider as compliant.</p>
-                    <input
-                      id="conf-helmet"
-                      type="range"
-                      min="0.30"
-                      max="0.95"
-                      step="0.05"
-                      value={detectionSettings.conf_helmet}
-                      onChange={(e) =>
-                        setDetectionSettings(s => ({ ...s, conf_helmet: parseFloat(e.target.value) }))
-                      }
-                      disabled={!isAdmin}
-                      className="w-full accent-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <div className="app-hint-text flex justify-between">
-                      <span>30% (Lenient)</span>
-                      <span>95% (Strict)</span>
+                    <Label className="app-label-text font-medium">Current Thresholds</Label>
+                    <div className="rounded-md border border-border overflow-hidden">
+                      <table className="w-full text-[13px]">
+                        <tbody>
+                          {[['Confidence Threshold', detectionSettings.confidence_threshold], ['No Helmet', detectionSettings.conf_no_helmet], ['Nutshell (Half-Helmet)', detectionSettings.conf_nutshell], ['Helmet (Compliant)', detectionSettings.conf_helmet], ['License Plate', detectionSettings.conf_license_plate], ['OCR Confidence', detectionSettings.ocr_confidence]].map(([label, value]) => (
+                            <tr key={String(label)} className="border-b border-border/60 last:border-0">
+                              <td className="px-4 py-2 font-medium text-foreground">{label}</td>
+                              <td className="px-4 py-2 text-right text-muted-foreground">{(Number(value) * 100).toFixed(0)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
+                    <p className="app-hint-text">Switch to Custom mode to manually adjust individual thresholds.</p>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="conf-license-plate">
-                      License Plate Detection - <span className="text-foreground font-medium">
-                        {(detectionSettings.conf_license_plate * 100).toFixed(0)}%
-                      </span>
-                    </Label>
-                    <p className="app-hint-text">Minimum YOLO confidence to attempt reading a plate. Lower if plates are being missed.</p>
-                    <input
-                      id="conf-license-plate"
-                      type="range"
-                      min="0.30"
-                      max="0.95"
-                      step="0.05"
-                      value={detectionSettings.conf_license_plate}
-                      onChange={(e) =>
-                        setDetectionSettings(s => ({ ...s, conf_license_plate: parseFloat(e.target.value) }))
-                      }
-                      disabled={!isAdmin}
-                      className="w-full accent-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    <div className="app-hint-text flex justify-between">
-                      <span>30% (Lenient)</span>
-                      <span>95% (Strict)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
+                )
+              ) : (
                 <div className="space-y-2">
-                  <Label htmlFor="send-cooldown">
-                    Alert Cooldown - <span className="text-foreground font-medium">
-                      {isNaN(detectionSettings.send_cooldown_seconds)
-                        ? '3.0'
-                        : detectionSettings.send_cooldown_seconds}s
-                    </span>
-                  </Label>
-                  <p className="app-hint-text">
-                    Minimum seconds between violation alerts sent to the server. Prevents duplicate detections.
-                  </p>
-                  <input
-                    id="send-cooldown"
-                    type="range"
-                    min="1"
-                    max="30"
-                    step="0.5"
-                    value={isNaN(detectionSettings.send_cooldown_seconds) ? 3.0 : detectionSettings.send_cooldown_seconds}
-                    onChange={(e) =>
-                      setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))
-                    }
-                    disabled={!isAdmin}
-                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <div className="app-hint-text flex justify-between">
-                    <span>1s (Fast)</span>
-                    <span>30s (Slow)</span>
+                  <Label className="app-label-text font-medium">Current Thresholds</Label>
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <table className="w-full text-[13px]">
+                      <tbody>
+                        {[['Confidence Threshold', detectionSettings.confidence_threshold], ['No Helmet', detectionSettings.conf_no_helmet], ['Nutshell (Half-Helmet)', detectionSettings.conf_nutshell], ['Helmet (Compliant)', detectionSettings.conf_helmet], ['License Plate', detectionSettings.conf_license_plate], ['OCR Confidence', detectionSettings.ocr_confidence]].map(([label, value]) => (
+                          <tr key={String(label)} className="border-b border-border/60 last:border-0">
+                            <td className="px-4 py-2 font-medium text-foreground">{label}</td>
+                            <td className="px-4 py-2 text-right text-muted-foreground">{(Number(value) * 100).toFixed(0)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
+              )}
 
-                <Separator />
-
-                <div className="space-y-2">
-                  <Label htmlFor="ocr-confidence">
-                    OCR Confidence - <span className="text-foreground font-medium">
-                      {isNaN(detectionSettings.ocr_confidence)
-                        ? '20'
-                        : (detectionSettings.ocr_confidence * 100).toFixed(0)}%
-                    </span>
-                  </Label>
-                  <p className="app-hint-text">
-                    Minimum confidence EasyOCR must have to accept a plate reading. Lower = more plate reads, more errors.
-                  </p>
-                  <input
-                    id="ocr-confidence"
-                    type="range"
-                    min="0.10"
-                    max="0.90"
-                    step="0.05"
-                    value={isNaN(detectionSettings.ocr_confidence) ? 0.20 : detectionSettings.ocr_confidence}
-                    onChange={(e) =>
-                      setDetectionSettings(s => ({ ...s, ocr_confidence: parseFloat(e.target.value) }))
-                    }
-                    disabled={!isAdmin}
-                    className="w-full accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <div className="app-hint-text flex justify-between">
-                    <span>10% (Permissive)</span>
-                    <span>90% (Strict)</span>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-2">
-                  <Label htmlFor="data-retention">Data Retention (days)</Label>
-                  <p className="app-hint-text">
-                    How many days to keep violation records in the database before auto-deletion.
-                  </p>
-                  <Input
-                    id="data-retention"
-                    type="number"
-                    min="7"
-                    max="365"
-                    value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
-                    onChange={(e) =>
-                      setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))
-                    }
-                    disabled={!isAdmin}
-                  />
-                </div>
-
-                <Separator />
-
-              {isAdmin && (
-                <Button
-                  onClick={() => handleSave('Detection')}
-                  disabled={savingSection === 'Detection'}
-                >
-                  {savingSection === 'Detection' ? 'Saving...' : 'Save Detection Settings'}
-                </Button>
+              {(isAdmin || currentUser?.permissions?.can_manage_detection) && (
+                <>
+                  <Separator />
+                  <Button onClick={() => handleSave('Detection')} disabled={savingSection === 'Detection'}>
+                    {savingSection === 'Detection' ? 'Saving...' : 'Save Detection Settings'}
+                  </Button>
+                </>
               )}
             </CardContent>
+            )}
           </Card>
         </TabsContent>
 
@@ -1696,6 +1671,20 @@ const Settings = () => {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Preset Confirmation Dialog */}
+      <AlertDialog open={!!confirmPreset} onOpenChange={(open) => { if (!open) setConfirmPreset(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply {confirmPreset?.label} Settings?</AlertDialogTitle>
+            <AlertDialogDescription>{confirmPreset?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button onClick={confirmApplyPreset}>Apply</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

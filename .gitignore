@@ -53,3 +53,12 @@ graphify-out/
 
 # Deployment set up
 DEPLOYMENT.md
+
+# Playwright MCP snapshots
+.playwright-mcp/
+
+# Agent tooling artifacts
+.agents/
+.medusa/
+.mimocode/
+.swarm/

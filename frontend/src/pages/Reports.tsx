@@ -326,22 +326,7 @@ const Reports = () => {
         filterReviewStatus,
       });
 
-      const params = new URLSearchParams();
-      params.append('export_format', format);
-      Object.entries(filterParams).forEach(([key, value]) => {
-        params.append(key, value);
-      });
-
-      const response = await apiClient.get(
-        `/violations/export/?${params.toString()}`,
-        { responseType: 'blob' }
-      );
-
-      const blob = new Blob([response.data], {
-        type: format === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
+      const blob = await violationsService.exportViolations(filterParams, format);
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

@@ -48,13 +48,13 @@ export const usersService = {
       }
 
       const message =
-        (error as Record<string, unknown>).detail ||
-        (error as Record<string, unknown>).error ||
+        (typeof (error as Record<string, unknown>).detail === "string" ? (error as Record<string, unknown>).detail : "") ||
+        (typeof (error as Record<string, unknown>).error === "string" ? (error as Record<string, unknown>).error : "") ||
         Object.entries(error as Record<string, unknown>)
           .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs[0] : msgs}`)
           .join(" | ") ||
         "Registration failed";
-      throw new Error(message);
+      throw new Error(message as string);
     }
 
     return response.json();
@@ -77,4 +77,41 @@ export const usersService = {
     const response = await apiClient.patch(`/users/${userId}/permissions/`, updates);
     return response.data;
   },
+
+  async getPendingUsers(): Promise<UserListItem[]> {
+    const response = await apiClient.get("/users/pending/");
+    return Array.isArray(response.data) ? response.data : response.data.results || [];
+  },
+
+  async approveUser(id: number) {
+    const response = await apiClient.post(`/users/${id}/approve/`);
+    return response.data;
+  },
+
+  async rejectUser(id: number) {
+    const response = await apiClient.post(`/users/${id}/reject/`);
+    return response.data;
+  },
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await apiClient.post("/users/change-password/", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
+
+  async createOperator(data: { name : string; email: string; password: string; role?: string; }) {
+    const response = await apiClient.post("/users/create-operator/", data);
+    return response.data;
+  },
+
+  async updateMe(data: { first_name?: string; last_name?: string; email?: string }) {
+    const response = await apiClient.patch("/users/me/", data);
+    return response.data;
+  },
+
+  async deleteUser(id: number) {
+    await apiClient.delete(`/users/${id}/`);
+  },  
 };

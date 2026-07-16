@@ -10,6 +10,7 @@ DEFAULT_OPERATOR_PERMISSIONS = {
     "can_export_reports": False,
     "can_view_cameras": True,
     "can_manage_cameras": False,
+    "can_manage_detection": False,
 }
 
 DEFAULT_DISPLAY_PREFERENCES = {
@@ -107,6 +108,7 @@ class AdminNotification(models.Model):
         ('evidence_view', 'Evidence View'),
         ('plate_search', 'Plate Search'),
         ('report_export', 'Report Export'),
+        ('settings_changed', 'Settings Changed'),
     ]
 
     actor = models.ForeignKey(
@@ -142,7 +144,7 @@ class AdminNotification(models.Model):
 
     @classmethod
     def get_alert_notification_types(cls):
-        return ['new_detection', 'violation_action']
+        return ['new_detection', 'violation_action', 'settings_changed']
 
     @classmethod
     def get_activity_notification_types(cls):
@@ -244,6 +246,7 @@ class UserNotification(models.Model):
         ('admin_update', 'Admin Update'),
         ('new_detection', 'New Detection'),
         ('system_alert', 'System Alert'),
+        ('settings_changed', 'Settings Changed'),
     ]
 
     sender = models.ForeignKey(

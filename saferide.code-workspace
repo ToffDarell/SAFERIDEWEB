@@ -25,6 +25,10 @@
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.formatOnSave": true
       }
+    },
+    {
+      "path": "graphify-out",
+      "name": "Graphify Output"
     }
   ],
   "settings": {
@@ -32,6 +36,7 @@
     "[python]": {
       "editor.defaultFormatter": "ms-python.python",
       "editor.formatOnSave": true
-    }
+    },
+    "liveServer.settings.multiRootWorkspaceName": "Frontend"
   }
 }

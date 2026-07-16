@@ -67,9 +67,7 @@ export const camerasService = {
     await apiClient.delete(`/cameras/${id}/`);
   },
 
-  getStreamUrl(id: number): string {
-    const baseURL = apiClient.defaults.baseURL || 'http://localhost:8000';
-    const token = localStorage.getItem('accessToken');
-    return `${baseURL}/cameras/${id}/stream/?detection=true`;
+  getStreamUrl(camera : Camera): string {
+    return camera.stream_url;
   },
 };

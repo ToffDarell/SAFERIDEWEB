@@ -164,15 +164,9 @@ const Violations = () => {
       if (filterDetectionStatus !== "all") params.append("detection_status", filterDetectionStatus);
       if (filterReviewStatus !== "all") params.append("review_status", filterReviewStatus);
 
-      const response = await apiClient.get(
-        `/violations/export/?${params.toString()}`,
-        { responseType: 'blob' }
-      );
-      const blob = new Blob([response.data], {
-        type: format === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
+      const filters: Record<string, string> = {};
+      params.forEach((value, key) => { filters[key] = value; });
+      const blob = await violationsService.exportViolations(filters, format as 'csv' | 'xlsx' | 'pdf');
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");

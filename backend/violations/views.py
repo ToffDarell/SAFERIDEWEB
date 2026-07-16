@@ -47,6 +47,7 @@ from users.permissions import (
     CanAccessViolationRecords,
     CanViewViolationAnalytics,
     CanViewViolations,
+    IsAdmin,
     IsYoloService,
     has_user_permission,
     is_admin_user,
@@ -219,7 +220,7 @@ class ViolationViewSet(viewsets.ModelViewSet):
             return [CanAccessViolationRecords()]
         if self.action in ['retrieve', 'evidence', 'update', 'partial_update']:
             return [CanViewViolations()]
-        return [IsAuthenticated()]
+        return [IsAdmin()]
 
     def perform_create(self, serializer):
         violation = serializer.save()

@@ -147,4 +147,12 @@ export const violationsService = {
     });
     return response.data;
   },
+
+  async exportViolations(filters: Record<string, string>, format: 'csv' | 'xlsx' | 'pdf' = 'csv'): Promise<Blob> {
+    const response = await apiClient.get('/violations/export/', {
+      params: { ...filters, export_format: format },
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
