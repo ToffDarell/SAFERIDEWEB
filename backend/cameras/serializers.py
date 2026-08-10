@@ -44,7 +44,10 @@ class CameraSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Camera
-        fields = '__all__'
+        fields = [
+            'id', 'name', 'location','stream_url', 'rtsp_url', 'status', 'is_alive', 'last_seen_at', 'created_at', 'updated_at',
+            'active_lens', 'preferred_lens',
+        ]
 
     def create(self, validated_data):
         # Pop write-only fields so they don't hit the model

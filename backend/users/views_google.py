@@ -138,5 +138,7 @@ class GoogleAuthCallback(APIView):
             raise
         except ValueError:
             return Response({"error": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except KeyError:
+            return Response({"error": "Missing required field in Google response"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"error": "Google authentication failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

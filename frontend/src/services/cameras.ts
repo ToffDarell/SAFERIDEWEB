@@ -5,12 +5,40 @@ export interface Camera {
   name: string;
   location: string;
   stream_url: string;
-  rtsp_url: string;
+  rtsp_url?: string;
   status: 'active' | 'inactive';
   is_live?: boolean;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ParsedRtspUrl {
+  camera_ip: string;
+  rtsp_username: string;
+  rtsp_password: string;
+  stream_quality: string;
+}
+
+export function parseRtspUrl(url: string): ParsedRtspUrl | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'rtsp:') {
+      return null;
+    }
+    const pathSegments = parsed.pathname.split('/').filter(Boolean);
+    return {
+      camera_ip: parsed.hostname,
+      rtsp_username: decodeURIComponent(parsed.username || ''),
+      rtsp_password: decodeURIComponent(parsed.password || ''),
+      stream_quality: pathSegments[0] || 'stream1',
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface CreateCameraPayload {
@@ -22,25 +50,6 @@ export interface CreateCameraPayload {
   stream_quality: 'stream1' | 'stream2' | 'stream6' | 'stream7';
 }
 
-export function parseRtspUrl(url: string): {
-  camera_ip: string;
-  rtsp_username: string;
-  rtsp_password: string;
-  stream_quality: string;
-} | null {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'rtsp:') return null;
-    return {
-      camera_ip: parsed.hostname,
-      rtsp_username: parsed.username,
-      rtsp_password: parsed.password,
-      stream_quality: parsed.pathname.replace(/^\//, ''),
-    };
-  } catch {
-    return null;
-  }
-}
 
 export const camerasService = {
   async getCameras() {
