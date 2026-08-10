@@ -70,6 +70,9 @@ const Settings = () => {
     conf_helmet: 0.60,
     conf_license_plate: 0.60,
   });
+  const [dataRetentionEnabled, setDataRetentionEnabled] = useState(true);
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [cleanupRunning, setCleanupRunning] = useState(false);
   const [loadingDetection, setLoadingDetection] = useState(true);
 
   const DETECTION_PRESETS = {
@@ -234,10 +237,12 @@ const Settings = () => {
     setLoadingDetection(true);
     try {
       const data = await settingsService.getSettings();
+      const retentionDays = Number(data.data_retention_days ?? 90);
+      const retentionEnabled = retentionDays > 0;
       const newSettings = {
         confidence_threshold:  data.confidence_threshold  ?? 0.60,
         send_cooldown_seconds: data.send_cooldown_seconds ?? 3.0,
-        data_retention_days:   data.data_retention_days   ?? 90,
+        data_retention_days:   retentionEnabled ? retentionDays : 90,
         ocr_confidence:        data.ocr_confidence        ?? 0.20,
         conf_no_helmet:        data.conf_no_helmet         ?? 0.55,
         conf_nutshell:         data.conf_nutshell          ?? 0.65,
@@ -245,6 +250,7 @@ const Settings = () => {
         conf_license_plate:    data.conf_license_plate     ?? 0.60,
       };
       setDetectionSettings(newSettings);
+      setDataRetentionEnabled(retentionEnabled);
       // Only detect preset on first load; skip on subsequent calls to preserve user's selection
       if (!settingsLoadedRef.current) {
         const matched = (['balanced', 'sensitive', 'strict'] as const).find(key =>
@@ -549,7 +555,9 @@ const Settings = () => {
       }
 
       if (section === 'Security') {
-        await settingsService.updateSettings({ data_retention_days: detectionSettings.data_retention_days });
+        await settingsService.updateSettings({
+          data_retention_days: dataRetentionEnabled ? detectionSettings.data_retention_days : 0,
+        });
       }
 
       if (section === 'Notifications') {
@@ -607,6 +615,26 @@ const Settings = () => {
       });
     } finally {
       setCreatingOperator(false);
+    }
+  };
+
+  const handleRunCleanupNow = async () => {
+    setCleanupRunning(true);
+    try {
+      const result = await settingsService.runCleanup();
+      toast({
+        title: 'Cleanup complete',
+        description: `Deleted ${result.deleted} violations.`,
+      });
+      setCleanupDialogOpen(false);
+    } catch (err: any) {
+      toast({
+        title: 'Cleanup Failed',
+        description: err?.response?.data?.detail ?? err?.message ?? 'Could not run cleanup.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCleanupRunning(false);
     }
   };
 
@@ -746,18 +774,45 @@ const Settings = () => {
               {isAdmin && (
                 <>
                   <Separator />
-                  <div className="space-y-2">
-                    <Label htmlFor="data-retention">Data Retention (days)</Label>
-                    <p className="app-hint-text">How many days to keep violation records in the database before auto-deletion.</p>
-                    <Input
-                      id="data-retention" type="number" min="7" max="365"
-                      value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
-                      onChange={(e) => setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))}
-                    />
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="data-retention-enabled">Automatic Cleanup</Label>
+                        <p className="app-hint-text">Turn this off to keep violation records indefinitely.</p>
+                      </div>
+                      <Switch
+                        id="data-retention-enabled"
+                        checked={dataRetentionEnabled}
+                        onCheckedChange={setDataRetentionEnabled}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="data-retention">Data Retention (days)</Label>
+                      <p className="app-hint-text">How many days to keep violation records in the database before auto-deletion.</p>
+                      <Input
+                        id="data-retention"
+                        type="number"
+                        min="7"
+                        max="365"
+                        disabled={!dataRetentionEnabled}
+                        value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
+                        onChange={(e) => setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => handleSave('Security')} disabled={savingSection === 'Security'}>
+                        {savingSection === 'Security' ? 'Saving...' : 'Save Security Settings'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setCleanupDialogOpen(true)}
+                        disabled={!dataRetentionEnabled}
+                      >
+                        Run Cleanup Now
+                      </Button>
+                    </div>
                   </div>
-                  <Button onClick={() => handleSave('Security')} disabled={savingSection === 'Security'}>
-                    {savingSection === 'Security' ? 'Saving...' : 'Save Security Settings'}
-                  </Button>
                 </>
               )}
             </CardContent>
@@ -1682,6 +1737,37 @@ const Settings = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button onClick={confirmApplyPreset}>Apply</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cleanup Confirmation Dialog */}
+      <AlertDialog
+        open={cleanupDialogOpen}
+        onOpenChange={(open) => {
+          if (!cleanupRunning) {
+            setCleanupDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run Cleanup Now?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all violation records older than {detectionSettings.data_retention_days} days including their evidence images. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cleanupRunning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cleanupRunning}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRunCleanupNow();
+              }}
+            >
+              {cleanupRunning ? 'Running...' : 'Run Cleanup'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

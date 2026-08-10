@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 from .models import Camera, SystemSettings
+from .retention import cleanup_old_violations
 from .serializers import CameraSerializer, SystemSettingsSerializer
 import logging
 from rest_framework_simplejwt.tokens import AccessToken
@@ -76,6 +77,8 @@ class SystemSettingsView(APIView):
             return [IsYoloService()]
         if self.request.method in {"GET", "HEAD", "OPTIONS"}:
             return [IsAdminOrReadOnly()]
+        if self.request.method == "POST":
+            return [IsAdmin()]
         return [IsAdminOrCanManageDetection()]
 
     def get(self, request):
@@ -135,3 +138,16 @@ class SystemSettingsView(APIView):
                     )
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def post(self, request):
+        if not request.path.rstrip("/").endswith("/cleanup"):
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        result = cleanup_old_violations()
+        return Response(
+            {
+                "deleted": result.deleted,
+                "cutoff_date": result.cutoff_date.isoformat() if result.cutoff_date else None,
+                "retention_days": result.retention_days,
+            }
+        )

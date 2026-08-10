@@ -22,6 +22,13 @@ export interface SystemSettings {
   database_backup_frequency_hours: number;
   database_backup_retention_days: number;
 }
+
+export interface CleanupResult {
+  deleted: number;
+  cutoff_date: string | null;
+  retention_days: number;
+}
+
 export const settingsService = {
   async getSettings(): Promise<SystemSettings> {
     const response = await apiClient.get('/settings/');
@@ -29,6 +36,10 @@ export const settingsService = {
   },
   async updateSettings(data: Partial<SystemSettings>): Promise<SystemSettings> {
     const response = await apiClient.patch('/settings/', data);
+    return response.data;
+  },
+  async runCleanup(): Promise<CleanupResult> {
+    const response = await apiClient.post('/settings/cleanup/');
     return response.data;
   },
 };

@@ -37,6 +37,7 @@ urlpatterns = [
     path("api/violations/", include("violations.urls")),
     path("api/users/", include("users.urls")),
     path("api/settings/", SystemSettingsView.as_view(), name="system-settings"),
+    path("api/settings/cleanup/", SystemSettingsView.as_view(), name="system-settings-cleanup"),
 ]
 
 # Serve media files in development
