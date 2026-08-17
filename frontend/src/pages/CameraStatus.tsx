@@ -100,11 +100,7 @@ const CameraStatus = () => {
       setCameras(list);
       await fetchViolationCounts(list);
     } catch (error) {
-      toast({
-        title: "Error loading cameras",
-        description: "Failed to fetch cameras from server",
-        variant: "destructive",
-      });
+      // Silently handle error when backend is offline
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

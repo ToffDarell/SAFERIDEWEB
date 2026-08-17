@@ -157,13 +157,7 @@ const Dashboard = () => {
         return cameraList.find((camera) => camera.status === 'active') ?? cameraList[0] ?? null;
       });
     } catch {
-      if (showError) {
-        toast({
-          title: 'Error loading cameras',
-          description: 'Failed to fetch camera status from the server.',
-          variant: 'destructive',
-        });
-      }
+      // Silently handle offline camera state
     }
   };
 

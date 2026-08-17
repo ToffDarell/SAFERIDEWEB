@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutGrid, Maximize2, Minimize2, WifiOff } from 'lucide-react';
+import { LayoutGrid, Maximize2, Minimize2, WifiOff, Camera as CameraIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -66,11 +66,6 @@ const LiveMonitor = () => {
         setBackendCameras(sorted);
       } catch (error) {
         console.error('Failed to load cameras:', error);
-        toast({
-          title: 'Camera load failed',
-          description: 'Could not load cameras from the backend.',
-          variant: 'destructive',
-        });
       } finally {
         setIsLoading(false);
       }
@@ -79,7 +74,7 @@ const LiveMonitor = () => {
     loadCameras();
     const interval = setInterval(loadCameras, 3000);
     return () => clearInterval(interval);
-  }, [toast]);
+  }, []);
 
   const monitorCameras = useMemo<MonitorCamera[]>(() => {
     return backendCameras.slice(0, 4).map((camera) => ({
@@ -187,8 +182,15 @@ const LiveMonitor = () => {
       <div className="space-y-6">
         <div>
           <h2 className="app-page-heading">Live Monitor</h2>
-          <p className="app-body-text text-muted-foreground">No cameras available</p>
+          <p className="app-body-text text-muted-foreground">Real-time MJPEG feed from YOLO detection service</p>
         </div>
+        <Card className="relative flex min-h-[420px] w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-border bg-[#1B1B2B] p-8 text-center shadow-sm">
+          <div className="mb-4 rounded-2xl bg-white/5 p-5 backdrop-blur-md">
+            <CameraIcon className="h-12 w-12 text-muted-foreground/60" />
+          </div>
+          <p className="text-base font-medium text-foreground">Select a camera to view the feed</p>
+          <p className="app-hint-text mt-1 text-muted-foreground">No active camera feeds currently available</p>
+        </Card>
       </div>
     );
   }
