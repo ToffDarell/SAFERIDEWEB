@@ -59,10 +59,12 @@ const LiveMonitor = () => {
     const loadCameras = async () => {
       try {
         const response = await camerasService.getCameras();
-        const list: BackendCamera[] = Array.isArray(response)
+        const rawList = Array.isArray(response)
           ? response
-          : response.results || [];
-        const sorted = [...list].sort((a, b) => a.id - b.id);
+          : response && Array.isArray(response.results)
+          ? response.results
+          : [];
+        const sorted = [...rawList].sort((a, b) => a.id - b.id);
         setBackendCameras(sorted);
       } catch (error) {
         console.error('Failed to load cameras:', error);

@@ -139,7 +139,12 @@ const Dashboard = () => {
 
     try {
       const data = await camerasService.getCameras();
-      const cameraList: CameraType[] = (data.results || data || []).sort(
+      const rawList = Array.isArray(data)
+        ? data
+        : data && Array.isArray(data.results)
+        ? data.results
+        : [];
+      const cameraList: CameraType[] = [...rawList].sort(
         (a: CameraType, b: CameraType) => a.id - b.id
       );
 

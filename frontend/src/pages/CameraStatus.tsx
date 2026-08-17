@@ -94,13 +94,18 @@ const CameraStatus = () => {
 
     try {
       const data = await camerasService.getCameras();
-      const list = [...(data.results || data || [])].sort(
+      const rawList = Array.isArray(data)
+        ? data
+        : data && Array.isArray(data.results)
+        ? data.results
+        : [];
+      const list = [...rawList].sort(
         (a: CameraType, b: CameraType) => a.id - b.id
       );
       setCameras(list);
       await fetchViolationCounts(list);
     } catch (error) {
-      // Silently handle error when backend is offline
+      console.error("Failed to load cameras:", error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
