@@ -126,6 +126,7 @@ class ViolationSerializer(serializers.ModelSerializer):
     camera_location = serializers.CharField(source='camera.location', read_only=True)
     reviewed_by_name = serializers.SerializerMethodField()
     reviewed_by_role = serializers.SerializerMethodField()
+    plate_corrected_by = serializers.SerializerMethodField()
     id_number = serializers.SerializerMethodField()
     has_evidence_image = serializers.SerializerMethodField()
     evidence_download_url = serializers.SerializerMethodField()
@@ -138,7 +139,8 @@ class ViolationSerializer(serializers.ModelSerializer):
         model = Violation
         fields = [
             'id', 'id_number', 'camera', 'camera_name', 'camera_location', 'detected_at', 'detection_status',
-            'confidence_score', 'classification', 'plate_number',
+            'confidence_score', 'classification', 'plate_number', 'plate_number_corrected',
+            'plate_corrected_by', 'plate_corrected_at',
             'evidence_image', 'evidence_download_url', 'has_evidence_image', 'bounding_box',
             'plate_crop_image', 'plate_crop_download_url', 'has_plate_crop_image',
             'detected_objects', 'processed_at',
@@ -147,6 +149,7 @@ class ViolationSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'id_number', 'processed_at', 'reviewed_by', 'reviewed_by_name',
             'reviewed_by_role', 'reviewed_at', 'evidence_download_url',
+            'plate_number_corrected', 'plate_corrected_by', 'plate_corrected_at',
         ]
 
     def get_id_number(self, obj):
@@ -169,6 +172,11 @@ class ViolationSerializer(serializers.ModelSerializer):
             # Fallback: check if user is superuser/staff
             if obj.reviewed_by.is_superuser or obj.reviewed_by.is_staff:
                 return 'Administrator'
+        return None
+
+    def get_plate_corrected_by(self, obj):
+        if obj.plate_corrected_by:
+            return obj.plate_corrected_by.username
         return None
 
     def get_has_evidence_image(self, obj):

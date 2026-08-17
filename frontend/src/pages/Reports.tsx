@@ -384,7 +384,7 @@ const Reports = () => {
 
   const recentViolationsSummary = recentViolations.map((violation) => ({
     id: violation.id_number || violation.id,
-    plate: violation.plate_number || 'N/A',
+    plate: violation.plate_number_corrected?.trim() || violation.plate_number || 'N/A',
     date: new Date(violation.detected_at).toLocaleDateString(),
     location: violation.camera_location || violation.camera_name || 'Unknown',
     status: violation.review_status

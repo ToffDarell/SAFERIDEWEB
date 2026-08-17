@@ -1,9 +1,11 @@
+import csv
 from io import BytesIO
 from zipfile import ZipFile
 from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework import status
@@ -15,6 +17,7 @@ from users.models import AdminNotification, UserNotification, UserProfile, get_d
 from violations.models import Violation
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class ViolationAnalyticsTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(
@@ -115,6 +118,16 @@ class ViolationAnalyticsTests(APITestCase):
             classification="no_helmet",
             review_status="pending",
         )
+
+    def _set_plate_correction(self, violation, corrected_plate="845KTH"):
+        violation.plate_number_corrected = corrected_plate
+        violation.plate_corrected_by = self.admin_user
+        violation.plate_corrected_at = timezone.now()
+        violation.save(update_fields=[
+            "plate_number_corrected",
+            "plate_corrected_by",
+            "plate_corrected_at",
+        ])
 
     def test_summary_endpoint_returns_full_dataset_counts(self):
         self.client.force_authenticate(user=self.user)
@@ -245,6 +258,38 @@ class ViolationAnalyticsTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["plate_number"], "ABC1234")
+
+    def test_admin_can_correct_plate_number_without_overwriting_original_ocr_value(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.patch(
+            f"/api/violations/{self.violation_with_evidence.id}/correct-plate/",
+            {"plate_number_corrected": "845KTH"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["plate_number"], "ABC1234")
+        self.assertEqual(response.data["plate_number_corrected"], "845KTH")
+        self.assertEqual(response.data["plate_corrected_by"], "admin")
+        self.assertIsNotNone(response.data["plate_corrected_at"])
+
+        violation = Violation.objects.get(pk=self.violation_with_evidence.pk)
+        self.assertEqual(violation.plate_number, "ABC1234")
+        self.assertEqual(violation.plate_number_corrected, "845KTH")
+        self.assertEqual(violation.plate_corrected_by, self.admin_user)
+        self.assertIsNotNone(violation.plate_corrected_at)
+
+    def test_non_admin_cannot_correct_plate_number(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            f"/api/violations/{self.violation_with_evidence.id}/correct-plate/",
+            {"plate_number_corrected": "845KTH"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_reports_permission_allows_violation_list_but_not_detail_or_evidence(self):
         self.user.profile.permissions = {
@@ -421,6 +466,7 @@ class ViolationAnalyticsTests(APITestCase):
             "can_export_reports": True,
         }
         self.user.profile.save(update_fields=["permissions"])
+        self._set_plate_correction(self.violation_with_evidence)
         self.client.force_authenticate(user=self.user)
 
         response = self.client.get(
@@ -439,7 +485,34 @@ class ViolationAnalyticsTests(APITestCase):
             for row in worksheet.iter_rows(min_row=15, values_only=True)
             if row and any(value is not None for value in row)
         ]
-        self.assertEqual(exported_plate_numbers, ["ABC1234"])
+        self.assertEqual(exported_plate_numbers, ["845KTH"])
+
+    def test_csv_export_includes_plate_correction_column_and_uses_corrected_value(self):
+        self.user.profile.permissions = {
+            **get_default_operator_permissions(),
+            "can_view_reports": True,
+            "can_export_reports": True,
+        }
+        self.user.profile.save(update_fields=["permissions"])
+        self._set_plate_correction(self.violation_with_evidence)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            "/api/violations/export/",
+            {"export_format": "csv", "search": "ABC"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = response.content.decode("utf-8-sig")
+        rows = list(csv.reader(content.splitlines()))
+
+        header_row = next(row for row in rows if row and row[0] == "#")
+        self.assertEqual(header_row[6], "Plate Number")
+        self.assertEqual(header_row[7], "Plate Corrected")
+
+        data_row = next(row for row in rows if row and len(row) >= 8 and row[0] == "1")
+        self.assertEqual(data_row[6], "845KTH")
+        self.assertEqual(data_row[7], "Yes")
 
     def test_export_endpoint_requires_report_view_permission(self):
         self.user.profile.permissions = {
@@ -471,6 +544,7 @@ class ViolationAnalyticsTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class ViolationServiceAuthTests(APITestCase):
     def setUp(self):
         self.operator_user = User.objects.create_user(

@@ -8,7 +8,7 @@ from pathlib import Path
 from django.db.models import Count, Q
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
-from rest_framework import viewsets, filters
+from rest_framework import filters, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -187,7 +187,7 @@ class ViolationFilter(django_filters.FilterSet):
 
 
 class ViolationViewSet(viewsets.ModelViewSet):
-    queryset = Violation.objects.select_related('reviewed_by__profile').all().order_by('-detected_at')
+    queryset = Violation.objects.select_related('reviewed_by__profile', 'plate_corrected_by').all().order_by('-detected_at')
     serializer_class = ViolationSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ViolationFilter
@@ -220,6 +220,8 @@ class ViolationViewSet(viewsets.ModelViewSet):
             return [CanAccessViolationRecords()]
         if self.action in ['retrieve', 'evidence', 'update', 'partial_update']:
             return [CanViewViolations()]
+        if self.action == 'correct_plate':
+            return [IsAdmin()]
         return [IsAdmin()]
 
     def perform_create(self, serializer):
@@ -251,6 +253,26 @@ class ViolationViewSet(viewsets.ModelViewSet):
                 previous_status=instance.get_review_status_display(),
                 new_status=updated_violation.get_review_status_display(),
             )
+
+    @action(detail=True, methods=['patch'], url_path='correct-plate')
+    def correct_plate(self, request, pk=None):
+        plate_number_corrected = str(request.data.get('plate_number_corrected', '')).strip()
+        if not plate_number_corrected:
+            raise serializers.ValidationError({
+                'plate_number_corrected': 'Plate number corrected must not be empty.',
+            })
+        if len(plate_number_corrected) > 20:
+            raise serializers.ValidationError({
+                'plate_number_corrected': 'Ensure this field has no more than 20 characters.',
+            })
+
+        violation = self.get_object()
+        violation.plate_number_corrected = plate_number_corrected
+        violation.plate_corrected_by = request.user
+        violation.plate_corrected_at = timezone.now()
+        violation.save(update_fields=['plate_number_corrected', 'plate_corrected_by', 'plate_corrected_at'])
+
+        return Response(self.get_serializer(violation).data)
 
     @action(detail=True, methods=['get'], url_path='evidence')
     def evidence(self, request, pk=None):
@@ -366,6 +388,14 @@ class ViolationExportView(APIView):
         logo_path = Path(__file__).resolve().parents[2] / 'frontend' / 'public' / 'tmc.jpg'
         return logo_path if logo_path.exists() else None
 
+    @staticmethod
+    def _get_display_plate_number(violation):
+        return violation.plate_number_corrected or violation.plate_number or 'N/A'
+
+    @staticmethod
+    def _is_plate_corrected(violation):
+        return bool((violation.plate_number_corrected or '').strip())
+
     def _get_qs(self, request):
         qs = _apply_violation_filters(
             Violation.objects.all().order_by('-detected_at'),
@@ -439,7 +469,7 @@ class ViolationExportView(APIView):
         # ── column headers ───────────────────────────────────────
         w.writerow([
             '#', 'ID', 'Date', 'Time', 'Camera', 'Classification',
-            'Plate Number', 'Detection Status', 'Confidence (%)',
+            'Plate Number', 'Plate Corrected', 'Detection Status', 'Confidence (%)',
             'Review Status',
         ])
 
@@ -452,7 +482,8 @@ class ViolationExportView(APIView):
                 v.detected_at.strftime('%H:%M:%S'),
                 v.camera.name if v.camera else 'Unknown',
                 v.get_classification_display(),
-                v.plate_number or 'N/A',
+                self._get_display_plate_number(v),
+                'Yes' if self._is_plate_corrected(v) else 'No',
                 v.get_detection_status_display(),
                 f'{v.confidence_score * 100:.1f}%',
                 v.get_review_status_display(),
@@ -603,7 +634,7 @@ class ViolationExportView(APIView):
                 violation.detected_at.strftime('%H:%M:%S'),
                 violation.camera.name if violation.camera else 'Unknown',
                 violation.get_classification_display(),
-                violation.plate_number or 'N/A',
+                self._get_display_plate_number(violation),
                 violation.get_detection_status_display(),
                 float(f'{violation.confidence_score * 100:.1f}'),
                 violation.get_review_status_display(),
@@ -826,7 +857,7 @@ class ViolationExportView(APIView):
                 Paragraph(v.detected_at.strftime('%H:%M:%S'), s_cell_center),
                 Paragraph(v.camera.name if v.camera else 'Unknown', s_cell_center),
                 Paragraph(v.get_classification_display(), s_cell_center),
-                Paragraph(v.plate_number or 'N/A', s_cell_center),
+                Paragraph(self._get_display_plate_number(v), s_cell_center),
                 Paragraph(v.get_detection_status_display(), s_cell_center),
                 Paragraph(_conf_color(v.confidence_score), s_cell_center),
                 Paragraph(_status_color(review_display), s_cell_center),

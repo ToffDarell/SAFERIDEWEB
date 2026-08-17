@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from cameras.models import Camera
@@ -29,6 +30,15 @@ class Violation(models.Model):
     confidence_score = models.FloatField()
     classification = models.CharField(max_length=50, choices=CLASSIFICATION_CHOICES)
     plate_number = models.CharField(max_length=50, null=True, blank=True)
+    plate_number_corrected = models.CharField(max_length=20, blank=True, default='')
+    plate_corrected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='plate_corrections',
+    )
+    plate_corrected_at = models.DateTimeField(null=True, blank=True)
     evidence_image = models.ImageField(upload_to='violations/%Y/%m/%d/', blank=True)
     plate_crop_image = models.ImageField(upload_to='violations/%Y/%m/%d/plate_crops/', blank=True)
     bounding_box = models.JSONField(null=True, blank=True)

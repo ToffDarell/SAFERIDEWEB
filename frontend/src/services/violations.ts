@@ -11,6 +11,9 @@ export interface Violation {
   confidence_score: number;
   classification: 'no_helmet' | 'helmet' | 'nutshell' | 'license_plate';
   plate_number: string | null;
+  plate_number_corrected: string;
+  plate_corrected_by: string | null;
+  plate_corrected_at: string | null;
   evidence_image: string | null;
   evidence_download_url?: string | null;
   has_evidence_image: boolean;
@@ -141,9 +144,16 @@ export const violationsService = {
   },
 
   // Update violation (for review)
-    async updateReviewStatus(id: number, status: 'pending' | 'reviewed' | 'resolved') {
+  async updateReviewStatus(id: number, status: 'pending' | 'reviewed' | 'resolved'): Promise<Violation> {
     const response = await apiClient.patch(`/violations/${id}/`, {
       review_status: status,
+    });
+    return response.data;
+  },
+
+  async correctPlateNumber(id: number, plate_number_corrected: string): Promise<Violation> {
+    const response = await apiClient.patch(`/violations/${id}/correct-plate/`, {
+      plate_number_corrected,
     });
     return response.data;
   },
