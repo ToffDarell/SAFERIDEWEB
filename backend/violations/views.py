@@ -218,10 +218,8 @@ class ViolationViewSet(viewsets.ModelViewSet):
             return [IsYoloService()]
         if self.action == 'list':
             return [CanAccessViolationRecords()]
-        if self.action in ['retrieve', 'evidence', 'update', 'partial_update']:
+        if self.action in ['retrieve', 'evidence', 'update', 'partial_update', 'correct_plate']:
             return [CanViewViolations()]
-        if self.action == 'correct_plate':
-            return [IsAdmin()]
         return [IsAdmin()]
 
     def perform_create(self, serializer):
@@ -256,6 +254,9 @@ class ViolationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='correct-plate')
     def correct_plate(self, request, pk=None):
+        if not (request.user.is_staff or getattr(getattr(request.user, 'profile', None), 'role', None) == 'admin' or has_user_permission(request.user, "can_correct_plate_number")):
+            raise PermissionDenied("You do not have permission to correct plate numbers.")
+
         plate_number_corrected = str(request.data.get('plate_number_corrected', '')).strip()
         if not plate_number_corrected:
             raise serializers.ValidationError({
@@ -267,10 +268,28 @@ class ViolationViewSet(viewsets.ModelViewSet):
             })
 
         violation = self.get_object()
+        original_display_plate = violation.plate_number_corrected or violation.plate_number or 'N/A'
+
         violation.plate_number_corrected = plate_number_corrected
         violation.plate_corrected_by = request.user
         violation.plate_corrected_at = timezone.now()
         violation.save(update_fields=['plate_number_corrected', 'plate_corrected_by', 'plate_corrected_at'])
+
+        # Notify Admin if operator corrected plate
+        AdminNotification.create_for_plate_correction(
+            actor=request.user,
+            violation=violation,
+            original_plate=original_display_plate,
+            corrected_plate=plate_number_corrected,
+        )
+
+        # Notify Operators when plate is corrected
+        UserNotification.create_for_plate_correction(
+            actor=request.user,
+            violation=violation,
+            original_plate=original_display_plate,
+            corrected_plate=plate_number_corrected,
+        )
 
         return Response(self.get_serializer(violation).data)
 

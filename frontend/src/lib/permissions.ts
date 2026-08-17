@@ -1,6 +1,7 @@
 export const DEFAULT_OPERATOR_PERMISSIONS = {
   can_view_violations: true,
   can_update_violation_status: true,
+  can_correct_plate_number: false,
   can_view_live_monitor: true,
   can_view_reports: true,
   can_export_reports: false,
@@ -27,6 +28,7 @@ export interface CurrentUser {
 export const PERMISSION_TOGGLE_ITEMS: Array<{ key: PermissionKey; label: string }> = [
   { key: "can_view_violations", label: "View violations" },
   { key: "can_update_violation_status", label: "Update violation status" },
+  { key: "can_correct_plate_number", label: "Correct plate number" },
   { key: "can_view_live_monitor", label: "View live monitor" },
   { key: "can_view_reports", label: "View reports" },
   { key: "can_export_reports", label: "Export reports" },

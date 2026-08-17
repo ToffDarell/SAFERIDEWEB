@@ -129,6 +129,7 @@ const Violations = () => {
   const { currentUser, hasPermission, isAdmin, isLoading: isPermissionsLoading } = usePermissions();
   const canUpdateViolationStatus = hasPermission('can_update_violation_status');
   const canExportReports = hasPermission('can_export_reports');
+  const canCorrectPlateNumber = isAdmin || hasPermission('can_correct_plate_number');
 
   // Read preferences saved from Settings page
   const prefs = JSON.parse(localStorage.getItem('userPreferences') || '{}');
@@ -913,13 +914,13 @@ const Violations = () => {
                               <span>{displayedPlate}</span>
                             </div>
 
-                            {/* Admin Edit Pencil Button */}
-                            {isAdmin && (
+                            {/* Edit Pencil Button */}
+                            {canCorrectPlateNumber && (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                title="Correct plate number (Admin only)"
+                                title="Correct plate number"
                                 className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
                                 onClick={() => openCorrectionModal(violation)}
                               >

@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 DEFAULT_OPERATOR_PERMISSIONS = {
     "can_view_violations": True,
     "can_update_violation_status": True,
+    "can_correct_plate_number": False,
     "can_view_live_monitor": True,
     "can_view_reports": True,
     "can_export_reports": False,
@@ -171,6 +172,25 @@ class AdminNotification(models.Model):
         )
 
     @classmethod
+    def create_for_plate_correction(cls, *, actor, violation, original_plate, corrected_plate):
+        role = UserProfile.objects.filter(user=actor).values_list('role', flat=True).first()
+        if role != 'tmc_operator':
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+
+        return cls.objects.create(
+            actor=actor,
+            violation=violation,
+            notification_type='violation_action',
+            title='Operator corrected plate number',
+            message=(
+                f"{actor_name} corrected plate number for violation #{violation.id} "
+                f"from '{original_plate}' to '{corrected_plate}'."
+            ),
+        )
+
+    @classmethod
     def create_for_evidence_view(cls, *, actor, violation):
         if not actor or not actor.is_authenticated:
             return None
@@ -316,4 +336,28 @@ class UserNotification(models.Model):
             title=title,
             message=message,
             notification_type='new_detection',
+        )
+
+    @classmethod
+    def create_for_plate_correction(cls, *, actor, violation, original_plate, corrected_plate):
+        actor_name = actor.get_full_name().strip() or actor.username
+        role_label = "Administrator" if (actor.is_staff or UserProfile.objects.filter(user=actor, role='admin').exists()) else "Operator"
+
+        recipients = User.objects.filter(
+            profile__role='tmc_operator',
+            profile__status='approved',
+        ).exclude(id=actor.id)
+
+        title = 'Plate number updated'
+        message = (
+            f"{role_label} {actor_name} updated plate number for violation #{violation.id} "
+            f"from '{original_plate}' to '{corrected_plate}'."
+        )
+
+        return cls.create_for_recipients(
+            sender=actor,
+            recipients=recipients,
+            title=title,
+            message=message,
+            notification_type='admin_update',
         )
