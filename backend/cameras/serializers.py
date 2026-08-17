@@ -45,8 +45,9 @@ class CameraSerializer(serializers.ModelSerializer):
     class Meta:
         model = Camera
         fields = [
-            'id', 'name', 'location','stream_url', 'rtsp_url', 'status', 'is_alive', 'last_seen_at', 'created_at', 'updated_at',
+            'id', 'name', 'location','stream_url', 'rtsp_url', 'status', 'last_seen_at', 'created_at', 'updated_at',
             'active_lens', 'preferred_lens',
+            'camera_ip', 'rtsp_username', 'rtsp_password', 'stream_quality',
         ]
 
     def create(self, validated_data):
