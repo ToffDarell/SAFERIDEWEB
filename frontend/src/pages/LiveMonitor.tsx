@@ -79,7 +79,7 @@ const LiveMonitor = () => {
   }, []);
 
   const monitorCameras = useMemo<MonitorCamera[]>(() => {
-    return backendCameras.slice(0, 4).map((camera) => ({
+    return backendCameras.map((camera) => ({
       id: String(camera.id),
       name: camera.name?.trim() || '',
       location: camera.location?.trim() || '',
