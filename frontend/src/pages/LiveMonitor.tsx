@@ -74,7 +74,7 @@ const LiveMonitor = () => {
     };
 
     loadCameras();
-    const interval = setInterval(loadCameras, 3000);
+    const interval = setInterval(loadCameras, 5000);
     return () => clearInterval(interval);
   }, []);
 

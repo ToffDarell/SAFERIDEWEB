@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import { Camera, Wifi, WifiOff, Activity, Eye, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Camera, Wifi, WifiOff, Activity, Eye, EyeOff, RefreshCw, Plus, Pencil, Trash2 } from 'lucide-react';
 import { camerasService, parseRtspUrl, type Camera as CameraType } from '@/services/cameras';
 import { violationsService } from '@/services/violations';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +51,7 @@ const CameraStatus = () => {
   const [editingCamera, setEditingCamera] = useState<CameraType | null>(null);
   const [cameraForm, setCameraForm] = useState<CameraFormState>(EMPTY_CAMERA_FORM);
   const [cameraFormError, setCameraFormError] = useState('');
+  const [showRtspPassword, setShowRtspPassword] = useState(false);
   const [isSavingCamera, setIsSavingCamera] = useState(false);
   const [cameraToDelete, setCameraToDelete] = useState<CameraType | null>(null);
   const [isDeletingCamera, setIsDeletingCamera] = useState(false);
@@ -61,7 +62,7 @@ const CameraStatus = () => {
 
   useEffect(() => {
     loadCameras();
-    const interval = setInterval(loadCameras, 2000);
+    const interval = setInterval(loadCameras, 5000);
     return () => clearInterval(interval);
   }, [canAccessViolationData]);
 
@@ -103,7 +104,7 @@ const CameraStatus = () => {
         (a: CameraType, b: CameraType) => a.id - b.id
       );
       setCameras(list);
-      await fetchViolationCounts(list);
+      void fetchViolationCounts(list);
     } catch (error) {
       console.error("Failed to load cameras:", error);
     } finally {
@@ -117,6 +118,7 @@ const CameraStatus = () => {
     setCameraForm(EMPTY_CAMERA_FORM);
     setCameraFormError('');
     setEditingCamera(null);
+    setShowRtspPassword(false);
   };
 
 
@@ -150,6 +152,7 @@ const CameraStatus = () => {
       stream_quality: parsed?.stream_quality || 'stream1',
     });
     setCameraFormError('');
+    setShowRtspPassword(false);
     setIsManageDialogOpen(true);
   };
 
@@ -619,14 +622,26 @@ const CameraStatus = () => {
               </div>
               <div className="space-y-2">
                 <label className="app-label-text" htmlFor="rtsp-password">RTSP Password</label>
-                <Input
-                  id="rtsp-password"
-                  type="password"
-                  value={cameraForm.rtsp_password}
-                  onChange={(event) => setCameraForm((current) => ({ ...current, rtsp_password: event.target.value }))}
-                  placeholder={editingCamera ? 'Leave blank to keep current' : 'e.g. password123'}
-                  disabled={isSavingCamera}
-                />
+                <div className="relative">
+                  <Input
+                    id="rtsp-password"
+                    type={showRtspPassword ? 'text' : 'password'}
+                    value={cameraForm.rtsp_password}
+                    onChange={(event) => setCameraForm((current) => ({ ...current, rtsp_password: event.target.value }))}
+                    placeholder={editingCamera ? 'Leave blank to keep current' : 'e.g. password123'}
+                    disabled={isSavingCamera}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRtspPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={showRtspPassword ? 'Hide password' : 'Show password'}
+                    disabled={isSavingCamera}
+                  >
+                    {showRtspPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
             {cameraFormError && (

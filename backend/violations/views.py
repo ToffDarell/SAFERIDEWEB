@@ -187,7 +187,7 @@ class ViolationFilter(django_filters.FilterSet):
 
 
 class ViolationViewSet(viewsets.ModelViewSet):
-    queryset = Violation.objects.select_related('reviewed_by__profile', 'plate_corrected_by').all().order_by('-detected_at')
+    queryset = Violation.objects.select_related('camera', 'reviewed_by__profile', 'plate_corrected_by').all().order_by('-detected_at')
     serializer_class = ViolationSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ViolationFilter
@@ -331,8 +331,18 @@ class ViolationSummaryView(APIView):
         today = timezone.localdate()
         week_start = today - timedelta(days=6)
         queryset = _apply_violation_filters(
-            Violation.objects.select_related("camera"),
+            Violation.objects.all(),
             request.query_params,
+        )
+
+        # Single query for all count aggregations instead of 6 separate queries
+        counts = queryset.aggregate(
+            total=Count('id'),
+            pending=Count('id', filter=Q(review_status='pending')),
+            reviewed=Count('id', filter=Q(review_status='reviewed')),
+            resolved=Count('id', filter=Q(review_status='resolved')),
+            today=Count('id', filter=Q(detected_at__date=today)),
+            this_week=Count('id', filter=Q(detected_at__date__range=(week_start, today))),
         )
 
         class_counts = {
@@ -342,12 +352,12 @@ class ViolationSummaryView(APIView):
         camera_counts = queryset.values("camera__name").annotate(count=Count("id")).order_by("-count", "camera__name")
 
         summary = {
-            "total_violations": queryset.count(),
-            "pending_violations": queryset.filter(review_status="pending").count(),
-            "reviewed_violations": queryset.filter(review_status="reviewed").count(),
-            "resolved_violations": queryset.filter(review_status="resolved").count(),
-            "today_violations": queryset.filter(detected_at__date=today).count(),
-            "this_week_violations": queryset.filter(detected_at__date__range=(week_start, today)).count(),
+            "total_violations": counts['total'],
+            "pending_violations": counts['pending'],
+            "reviewed_violations": counts['reviewed'],
+            "resolved_violations": counts['resolved'],
+            "today_violations": counts['today'],
+            "this_week_violations": counts['this_week'],
             "by_class": [
                 {
                     "classification": code,
@@ -417,7 +427,7 @@ class ViolationExportView(APIView):
 
     def _get_qs(self, request):
         qs = _apply_violation_filters(
-            Violation.objects.all().order_by('-detected_at'),
+            Violation.objects.select_related('camera').all().order_by('-detected_at'),
             request.query_params,
         )
         search = (request.query_params.get('search') or '').strip()

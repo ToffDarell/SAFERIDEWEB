@@ -59,11 +59,13 @@ export const useLocalNotifications = () => {
     };
     syncNotifications();
     const interval = setInterval(syncNotifications, 3000);
-    const handleStorage = () => syncNotifications();
-    window.addEventListener('storage', handleStorage);
+    const handleSync = () => syncNotifications();
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('saferide-new-violation', handleSync);
     return () => {
       clearInterval(interval);
-      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('saferide-new-violation', handleSync);
     };
   }, []);
 

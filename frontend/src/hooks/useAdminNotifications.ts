@@ -45,11 +45,17 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
     const interval = setInterval(() => {
       if (Date.now() - lastMutationAt.current < 2000) return;
       loadNotifications(false);
-    }, 30000);
+    }, 15000);
+
+    const handleNewViolation = () => {
+      loadNotifications(false);
+    };
+    window.addEventListener('saferide-new-violation', handleNewViolation);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('saferide-new-violation', handleNewViolation);
     };
   }, [isAdmin, scope]);
 

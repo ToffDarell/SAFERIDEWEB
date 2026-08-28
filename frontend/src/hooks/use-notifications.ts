@@ -161,33 +161,33 @@ export const useViolationNotifications = () => {
 
         const freshUnseenViolations = recentViolations
           .filter((violation) => !seenViolationIdsRef.current.has(violation.id))
-          .filter((violation) => {
-            const timestamp = Date.parse(getViolationTimestamp(violation));
-            return Number.isFinite(timestamp)
-              ? Date.now() - timestamp <= RECENT_THRESHOLD_MS
-              : true;
-          })
           .sort(
             (left, right) =>
-              Date.parse(getViolationTimestamp(left)) - Date.parse(getViolationTimestamp(right))
+              (Date.parse(getViolationTimestamp(left)) || 0) -
+              (Date.parse(getViolationTimestamp(right)) || 0)
           );
 
-        freshUnseenViolations.forEach((violation) => {
+        if (freshUnseenViolations.length > 0) {
           const preferences = readNotificationPreferences();
-          if (preferences.live_violation_popups) {
-            toast({
-              title: 'Violation Detected!',
-              description: getViolationMessage(violation),
-              variant: 'destructive',
-              duration: preferences.auto_hide_ms,
-            });
+          freshUnseenViolations.forEach((violation) => {
+            if (preferences.live_violation_popups) {
+              toast({
+                title: 'Violation Detected!',
+                description: getViolationMessage(violation),
+                variant: 'destructive',
+                duration: preferences.auto_hide_ms,
+              });
 
-            if (preferences.notification_sound) {
-              playNotificationTone();
+              if (preferences.notification_sound) {
+                playNotificationTone();
+              }
             }
-          }
-          appendLocalNotification(violation);
-        });
+            appendLocalNotification(violation);
+            window.dispatchEvent(
+              new CustomEvent('saferide-new-violation', { detail: violation })
+            );
+          });
+        }
 
         recentViolations.forEach((violation) => markSeen(violation.id));
       } catch (error) {
