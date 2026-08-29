@@ -147,6 +147,7 @@ const Violations = () => {
   const [specificMonth, setSpecificMonth] = useState('');
   const [filterLocation, setFilterLocation] = useState('all');
   const [filterDetectionStatus, setFilterDetectionStatus] = useState('all');
+  const [filterClassification, setFilterClassification] = useState('all');
   const [filterReviewStatus, setFilterReviewStatus] = useState(defaultFilter);
 
   // Evidence Dialog State
@@ -207,7 +208,7 @@ const Violations = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filterDateMode, specificDate, specificMonth, filterLocation, filterDetectionStatus, filterReviewStatus]);
+  }, [searchQuery, filterDateMode, specificDate, specificMonth, filterLocation, filterDetectionStatus, filterClassification, filterReviewStatus]);
 
   useEffect(() => {
     if (filterDateMode === 'specific_date' && specificDate && !isCompleteDate(specificDate)) {
@@ -234,6 +235,7 @@ const Violations = () => {
     specificMonth,
     filterLocation,
     filterDetectionStatus,
+    filterClassification,
     filterReviewStatus,
     isSearchTooShort,
     isPermissionsLoading,
@@ -293,6 +295,7 @@ const Violations = () => {
       }
       if (filterLocation !== 'all') params.location = filterLocation;
       if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
+      if (filterClassification !== 'all') params.classification = filterClassification;
       if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
 
       const data = await violationsService.getViolations(params);
@@ -335,9 +338,10 @@ const Violations = () => {
       if (filterDateMode === 'specific_month' && isCompleteMonth(specificMonth)) {
         params.append('specific_month', specificMonth);
       }
-      if (filterLocation !== 'all') params.location = filterLocation;
-      if (filterDetectionStatus !== 'all') params.detection_status = filterDetectionStatus;
-      if (filterReviewStatus !== 'all') params.review_status = filterReviewStatus;
+      if (filterLocation !== 'all') params.append('location', filterLocation);
+      if (filterDetectionStatus !== 'all') params.append('detection_status', filterDetectionStatus);
+      if (filterClassification !== 'all') params.append('classification', filterClassification);
+      if (filterReviewStatus !== 'all') params.append('review_status', filterReviewStatus);
 
       const filters: Record<string, string> = {};
       params.forEach((value, key) => {
@@ -712,13 +716,14 @@ const Violations = () => {
                 setSpecificMonth('');
                 setFilterLocation('all');
                 setFilterDetectionStatus('all');
+                setFilterClassification('all');
                 setFilterReviewStatus('all');
               }}
             >
               Reset Filters
             </Button>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
             {/* Plate Search */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Plate Number</label>
@@ -812,6 +817,21 @@ const Violations = () => {
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="violation">Violation</SelectItem>
                   <SelectItem value="compliant">No Violation</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Classification Select */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Classification</label>
+              <Select value={filterClassification} onValueChange={setFilterClassification}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="All Classifications" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classifications</SelectItem>
+                  <SelectItem value="no_helmet">No Helmet</SelectItem>
+                  <SelectItem value="nutshell">Nutshell</SelectItem>
                 </SelectContent>
               </Select>
             </div>

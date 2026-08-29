@@ -216,11 +216,61 @@ class ViolationViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'create':
             return [IsYoloService()]
-        if self.action == 'list':
+        if self.action in ['list', 'recent']:
             return [CanAccessViolationRecords()]
         if self.action in ['retrieve', 'evidence', 'update', 'partial_update', 'correct_plate']:
             return [CanViewViolations()]
         return [IsAdmin()]
+
+    @action(detail=False, methods=['get'], url_path='recent', url_name='recent')
+    def recent(self, request):
+        """
+        Lightweight endpoint used exclusively by the frontend notification poller.
+
+        Returns only the fields needed to detect new violations and show a popup:
+          id, classification, camera_name, detected_at, processed_at
+
+        Deliberately avoids:
+          - evidence_image / plate_crop_image URL-building  (4x reverse() per row)
+          - reviewed_by profile joins
+          - bounding_box / detected_objects JSON parsing
+          - Any field not needed for the "is this new?" check
+
+        With page_size=10 and detection_status=violation this is a single fast
+        indexed query returning ~400 bytes of JSON, keeping the 1.5s poll
+        non-blocking even with 1000+ records in the database.
+        """
+        qs = Violation.objects.select_related('camera').filter(detection_status='violation')
+
+        # Allow ?since_id=N to only return violations newer than a known ID
+        since_id = request.query_params.get('since_id')
+        if since_id:
+            try:
+                qs = qs.filter(id__gt=int(since_id)).order_by('id')
+            except (TypeError, ValueError):
+                qs = qs.order_by('-id')
+        else:
+            qs = qs.order_by('-id')
+
+        # Honour ?page_size= but cap at 50 to keep the response fast and bounded
+        try:
+            page_size = min(int(request.query_params.get('page_size', 10)), 50)
+        except (TypeError, ValueError):
+            page_size = 10
+
+        violations = qs[:page_size]
+
+        data = [
+            {
+                'id': v.id,
+                'classification': v.classification,
+                'camera_name': v.camera.name if v.camera else 'Unknown',
+                'detected_at': v.detected_at.isoformat() if v.detected_at else None,
+                'processed_at': v.processed_at.isoformat() if v.processed_at else None,
+            }
+            for v in violations
+        ]
+        return Response(data)
 
     def perform_create(self, serializer):
         violation = serializer.save()

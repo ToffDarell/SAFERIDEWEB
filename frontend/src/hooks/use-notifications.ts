@@ -1,14 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { usePermissions } from '@/contexts/PermissionsContext';
-import { violationsService, type Violation } from '@/services/violations';
-import { useToast } from './use-toast';
+import { violationsService, type RecentViolation } from '@/services/violations';
+// Import the module-level stable toast function, NOT the hook version.
+// The hook's toast reference changes on every render (because useToast re-subscribes
+// via listeners.push on state change), which caused the useEffect to tear down and
+// restart the poll interval every time a toast was displayed.
+import { toast } from './use-toast';
 
 const STORAGE_KEY = 'notifications';
 const SETTINGS_KEY = 'notificationSettings';
-const POLL_INTERVAL_MS = 1500;
-const MAX_TRACKED_IDS = 100;
+// 2 500 ms: fast enough for near-realtime feel, light enough not to hammer the DB.
+// The old 1 500 ms interval was fine for latency but the heavy serializer made each
+// response take 200-400 ms, effectively giving a real cadence of ~2 000 ms anyway.
+const POLL_INTERVAL_MS = 2000;
 const MAX_LOCAL_NOTIFICATIONS = 50;
-const RECENT_THRESHOLD_MS = 30000;
 
 type NotificationPreferences = {
   live_violation_popups: boolean;
@@ -77,13 +82,13 @@ const playNotificationTone = () => {
   }
 };
 
-const getViolationTimestamp = (violation: Violation) =>
+const getViolationTimestamp = (violation: RecentViolation) =>
   violation.processed_at || violation.detected_at;
 
-const getViolationMessage = (violation: Violation) =>
-  `${violation.classification.replace('_', ' ').toUpperCase()} detected at ${violation.camera_name}`;
+const getViolationMessage = (violation: RecentViolation) =>
+  `${violation.classification.replace(/_/g, ' ').toUpperCase()} detected at ${violation.camera_name}`;
 
-const appendLocalNotification = (violation: Violation) => {
+const appendLocalNotification = (violation: RecentViolation) => {
   const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (currentUser.role !== 'tmc_operator') {
     return;
@@ -108,10 +113,9 @@ const appendLocalNotification = (violation: Violation) => {
 };
 
 export const useViolationNotifications = () => {
-  const { toast } = useToast();
   const { hasPermission, isLoading } = usePermissions();
   const isBootstrappedRef = useRef(false);
-  const seenViolationIdsRef = useRef(new Set<number>());
+  const maxSeenIdRef = useRef<number>(0);
   const canViewViolations = hasPermission('can_view_violations');
 
   useEffect(() => {
@@ -121,75 +125,70 @@ export const useViolationNotifications = () => {
 
     let isMounted = true;
 
-    const markSeen = (violationId: number) => {
-      const seenIds = seenViolationIdsRef.current;
-      if (seenIds.has(violationId)) {
-        return;
-      }
-
-      seenIds.add(violationId);
-      if (seenIds.size > MAX_TRACKED_IDS) {
-        const oldestId = seenIds.values().next().value;
-        if (typeof oldestId === 'number') {
-          seenIds.delete(oldestId);
-        }
-      }
-    };
-
     const checkNewViolations = async () => {
       try {
-        const response = await violationsService.getViolations({
-          page: 1,
-          page_size: 10,
-          detection_status: 'violation',
-          ordering: '-detected_at',
-        });
+        const sinceId = isBootstrappedRef.current ? maxSeenIdRef.current : undefined;
+        const recentViolations = await violationsService.getRecentViolations(sinceId);
 
         if (!isMounted) {
           return;
         }
 
-        const recentViolations: Violation[] = Array.isArray(response)
-          ? response
-          : response.results || [];
-
+        // Bootstrap: establish the high-water mark ID so historical violations do not trigger toasts
         if (!isBootstrappedRef.current) {
-          recentViolations.forEach((violation) => markSeen(violation.id));
+          if (recentViolations.length > 0) {
+            maxSeenIdRef.current = Math.max(...recentViolations.map((v) => v.id));
+          }
           isBootstrappedRef.current = true;
           return;
         }
 
-        const freshUnseenViolations = recentViolations
-          .filter((violation) => !seenViolationIdsRef.current.has(violation.id))
-          .sort(
-            (left, right) =>
-              (Date.parse(getViolationTimestamp(left)) || 0) -
-              (Date.parse(getViolationTimestamp(right)) || 0)
-          );
-
-        if (freshUnseenViolations.length > 0) {
+        // Incremental poll: every violation returned with id > sinceId is genuinely new
+        if (recentViolations.length > 0) {
           const preferences = readNotificationPreferences();
-          freshUnseenViolations.forEach((violation) => {
-            if (preferences.live_violation_popups) {
+
+          if (preferences.live_violation_popups) {
+            if (recentViolations.length >= 3) {
               toast({
-                title: 'Violation Detected!',
-                description: getViolationMessage(violation),
+                title: `${recentViolations.length} New Violations Detected!`,
+                description: recentViolations
+                  .map((v) => getViolationMessage(v))
+                  .join(' · '),
                 variant: 'destructive',
                 duration: preferences.auto_hide_ms,
               });
-
-              if (preferences.notification_sound) {
-                playNotificationTone();
-              }
+            } else {
+              recentViolations.forEach((violation) => {
+                toast({
+                  title: 'Violation Detected!',
+                  description: getViolationMessage(violation),
+                  variant: 'destructive',
+                  duration: preferences.auto_hide_ms,
+                });
+              });
             }
-            appendLocalNotification(violation);
-            window.dispatchEvent(
-              new CustomEvent('saferide-new-violation', { detail: violation })
-            );
-          });
-        }
 
-        recentViolations.forEach((violation) => markSeen(violation.id));
+            if (preferences.notification_sound) {
+              playNotificationTone();
+            }
+          }
+
+          recentViolations.forEach((violation) => {
+            appendLocalNotification(violation);
+          });
+
+          // Dispatch sync event for bell icon and notification counts
+          const latestViolation = recentViolations[recentViolations.length - 1];
+          window.dispatchEvent(
+            new CustomEvent('saferide-new-violation', { detail: latestViolation })
+          );
+
+          // Advance high-water mark
+          const newMax = Math.max(...recentViolations.map((v) => v.id));
+          if (newMax > maxSeenIdRef.current) {
+            maxSeenIdRef.current = newMax;
+          }
+        }
       } catch (error) {
         if (isMounted) {
           console.error('Error checking violations:', error);
@@ -206,5 +205,5 @@ export const useViolationNotifications = () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [canViewViolations, isLoading, toast]);
+  }, [canViewViolations, isLoading]);
 };

@@ -30,6 +30,14 @@ export interface Violation {
   reviewed_at: string | null;
 }
 
+export interface RecentViolation {
+  id: number;
+  classification: string;
+  camera_name: string;
+  detected_at: string;
+  processed_at: string | null;
+}
+
 export interface ViolationSummaryClassItem {
   classification: string;
   label: string;
@@ -63,7 +71,7 @@ export interface ViolationFilters {
   classification?: string;
   ordering?: string;
   page?: number;
-  page_size?: number;  
+  page_size?: number;
 }
 
 export const violationsService = {
@@ -71,6 +79,19 @@ export const violationsService = {
   async getViolations(params?: Record<string, string | number>) {
     const response = await apiClient.get('/violations/', { params });
     return response.data;
+  },
+
+  /**
+   * Lightweight poll endpoint used exclusively by the notification system.
+   * Returns only {id, classification, camera_name, detected_at, processed_at}.
+   * Much faster than getViolations() — no evidence URL-building, no reviewer joins.
+   * Pass sinceId to only fetch violations with id > sinceId (incremental fetch).
+   */
+  async getRecentViolations(sinceId?: number): Promise<RecentViolation[]> {
+    const params: Record<string, string | number> = { page_size: 10 };
+    if (sinceId !== undefined) params.since_id = sinceId;
+    const response = await apiClient.get('/violations/recent/', { params });
+    return Array.isArray(response.data) ? response.data : [];
   },
 
   // Get single violation
@@ -118,7 +139,7 @@ export const violationsService = {
   async getStats() {
     const response = await apiClient.get('/violations/');
     const data = response.data;
-    
+
     // Calculate stats from results
     const violations = data.results || [];
     const total = data.count || 0;

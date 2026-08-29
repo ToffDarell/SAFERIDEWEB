@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import cv2
@@ -42,7 +43,7 @@ def _plate_matches_violation(violation_bbox, plate_bbox):
         return False
 
     vertical_gap = py1 - vy2
-    max_vertical_gap = max(plate_width * 8.0, plate_height * 12.0, 180.0)
+    max_vertical_gap = max(plate_width * 5.0, plate_height * 8.0, 140.0)
     return vertical_gap <= max_vertical_gap
 
 
@@ -59,11 +60,21 @@ def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
     plate_height = max(1, py2 - py1)
     plate_width = max(1, px2 - px1)
 
+    # ── Horizontal center alignment ──────────────────────────────
+    # A rider sits directly above/behind the plate.  Reject detections
+    # whose horizontal center is too far from the plate center — this
+    # catches pedestrians walking beside a parked motorcycle.
+    violation_center_x = (vx1 + vx2) / 2
+    plate_center_x = (px1 + px2) / 2
+    max_horizontal_offset = plate_width * 0.7
+    if abs(violation_center_x - plate_center_x) > max_horizontal_offset:
+        return False
+
     # Estimated rider zone: extends from well above the plate to the plate
     rider_zone_top = py1 - max(plate_height * 10, plate_width * 4, 120)
     rider_zone_bottom = py2
-    rider_zone_left = px1 - plate_width * 0.8
-    rider_zone_right = px2 + plate_width * 0.8
+    rider_zone_left = px1 - plate_width * 0.5
+    rider_zone_right = px2 + plate_width * 0.5
 
     # Compute IoU between violation bbox and estimated rider zone
     inter_x1 = max(vx1, rider_zone_left)
@@ -77,8 +88,8 @@ def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
     inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
     violation_area = max(1, (vx2 - vx1) * (vy2 - vy1))
 
-    # At least 15% of the violation box should overlap the rider zone
-    return (inter_area / violation_area) >= 0.15
+    # At least 30% of the violation box should overlap the rider zone
+    return (inter_area / violation_area) >= 0.30
 
 
 def _draw_status_panel(frame, compliant_count, violation_count, latest_plate):
@@ -148,6 +159,21 @@ def _encode_plate_crop(frame_bgr, bbox, quality=90):
     crop = frame_bgr[y1:y2, x1:x2]
     if crop.size == 0:
         return None
+
+    # ── Enhancement pipeline ─────────────────────────────────────────────────
+    # 1. 2× upscale with bicubic interpolation.
+    #    INTER_CUBIC produces smoother results than INTER_LINEAR for small
+    #    plate crops and avoids the blocky artefacts of INTER_NEAREST.
+    h, w = crop.shape[:2]
+    crop = cv2.resize(crop, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+
+    # 2. Mild unsharp mask: result = original + amount * (original - blurred)
+    #    sigma=1.0 targets character-edge frequencies without amplifying noise.
+    #    amount=0.5 keeps the sharpening subtle — enough to clean up soft edges
+    #    from the RTSP/JPEG compression chain without creating ringing artefacts.
+    _blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
+    crop = cv2.addWeighted(crop, 1.5, _blurred, -0.5, 0)
+    # ─────────────────────────────────────────────────────────────────────────
 
     ok, encoded = cv2.imencode(
         '.jpg',
@@ -411,7 +437,7 @@ def main():
     print(f"Preview window : {'on' if show_window else 'off'}")
     print("-" * 60)
 
-    model_path = os.path.join('weights', 'v18.pt')
+    model_path = os.path.join('weights', 'V32_YOLO26.pt')
     if not os.path.exists(model_path):
         print(f"ERROR: Model not found at {model_path}")
         return
@@ -545,7 +571,30 @@ def main():
     encode_thread.start()
     print("✓ MJPEG encoder thread started")
 
+    # last_sent maps  key -> {'time': float, 'center': (cx, cy)}
+    # key is spatial, never plate-text-based - see dedup logic below.
     last_sent          = {}
+
+    # ── Temporal confirmation gate ───────────────────────────────
+    # Tracks when a spatial bucket was *first* seen passing all geometric
+    # checks.  A detection is only promoted to a confirmed violation once
+    # it has persisted for at least CONFIRM_SECONDS consecutive seconds.
+    # This filters brief pedestrian pass-throughs (standing momentarily
+    # in front of a parked motorcycle) while still catching actual riders
+    # who remain in frame for more than a blink.
+    confirm_seconds = max(0.0, float(os.getenv('CONFIRM_SECONDS', '0.8')))
+    # Minimum fraction of violation-class observations to confirm as a
+    # violation, even if helmet observations are the majority.  Default 0.15
+    # means: if >=15% of frames show a violation class, confirm as violation.
+    violation_confirm_ratio = max(0.0, min(1.0, float(os.getenv('VIOLATION_CONFIRM_RATIO', '0.15'))))
+    # Raw YOLO confidence at or above which a geometrically-valid violation
+    # skips the temporal_confirm dwell/vote step and is sent immediately.
+    instant_confirm_conf = max(0.0, min(1.0, float(os.getenv('INSTANT_CONFIRM_CONF', '0.85'))))
+    # Class-agnostic spatial bucket -> {first_seen, last_seen, votes[]}
+    # The key is ONLY the grid position (no class_name) so that flicker
+    # between no_helmet / nutshell / helmet at the same location shares
+    # a single dwell window instead of splitting into separate entries.
+    temporal_confirm = {}
 
     VIOLATION_CLASSES = ['no_helmet', 'nutshell']
     COMPLIANT_CLASSES = ['helmet']
@@ -627,7 +676,10 @@ def main():
             for box in boxes_filtered:
                 cls_id = int(box.cls[0])
                 cname  = model.names[cls_id].lower()
-                if cname not in stable_classes:
+                # Violation classes bypass stable_classes — the temporal
+                # confirmation gate (majority-vote) is a strictly better
+                # smoothing mechanism than requiring 2-of-3 frame stability.
+                if cname not in VIOLATION_CLASSES and cname not in stable_classes:
                     continue
 
                 frame_classes.append(cname)
@@ -673,7 +725,9 @@ def main():
                 cls_id     = int(box.cls[0])
                 class_name = model.names[cls_id].lower()
 
-                if class_name not in stable_classes:
+                # Violation classes bypass stable_classes — temporal_confirm
+                # handles smoothing via majority-vote over the dwell window.
+                if class_name not in VIOLATION_CLASSES and class_name not in stable_classes:
                     continue
 
                 class_conf_min = PER_CLASS_CONF.get(class_name, conf_threshold)
@@ -684,6 +738,19 @@ def main():
                     color = (0, 255, 0)
                     label = f"COMPLIANT: Helmet ({conf:.2f})"
                     compliant_count += 1
+
+                    # Inject helmet votes into any existing temporal_confirm
+                    # bucket at this position so the majority-vote actually
+                    # sees competition between helmet and violation classes.
+                    # Do NOT create new buckets for helmet-only detections.
+                    h_cx = (x1 + x2) // 2
+                    h_cy = (y1 + y2) // 2
+                    h_bx = round(h_cx / 100) * 100
+                    h_by = round(h_cy / 100) * 100
+                    h_tc_key = f"{h_bx}:{h_by}"
+                    if h_tc_key in temporal_confirm:
+                        temporal_confirm[h_tc_key]['last_seen'] = now
+                        temporal_confirm[h_tc_key]['votes'].append('helmet')
 
                 elif class_name in VIOLATION_CLASSES:
                     color = (0, 0, 255)
@@ -711,10 +778,122 @@ def main():
                             print(f"[Skipped] {class_name} - person not overlapping rider zone (likely pedestrian)")
                         continue
 
-                    plate_key = latest_plate if latest_plate else "NO_PLATE"
-                    key = f"{class_name}:{plate_key}"
-                    if (now - last_sent.get(key, 0)) >= send_cooldown:
-                        last_sent[key] = now
+                    # ── Spatial-bucket deduplication (plate-text-free) ────────
+                    # Round the violation bbox centre to the nearest 100-px grid
+                    # cell so nearby positions share the same bucket key.
+                    # Plate text is intentionally excluded from this key.
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+                    bx = round(cx / 100) * 100
+                    by = round(cy / 100) * 100
+
+                    # ── Temporal confirmation gate (majority-vote) ────────────
+                    # Class-agnostic bucket key so that flicker between
+                    # no_helmet / nutshell / helmet at the same grid cell
+                    # accumulates into ONE dwell window.
+                    tc_key = f"{bx}:{by}"
+
+                    # ── Instant-confirm fast path ────────────────────────────
+                    # A high-confidence violation that already cleared BOTH
+                    # geometric guards above is treated the way it was
+                    # pre-smoothing: sent now, no dwell, no vote.  Ambiguous /
+                    # low-confidence detections fall through to the
+                    # temporal_confirm gate below, unchanged.
+                    if conf >= instant_confirm_conf:
+                        confirmed_class = class_name
+                        print(f"[Instant] CONFIRMED {confirmed_class} at ({bx},{by}) "
+                              f"— conf {conf:.2f} >= {instant_confirm_conf:.2f}, no dwell")
+                    else:
+                        if tc_key in temporal_confirm:
+                            temporal_confirm[tc_key]['last_seen'] = now
+                            temporal_confirm[tc_key]['votes'].append(class_name)
+                        else:
+                            temporal_confirm[tc_key] = {
+                                'first_seen': now,
+                                'last_seen': now,
+                                'votes': [class_name],
+                            }
+
+                        # Prune stale temporal entries (not seen for >4s → pedestrian left).
+                        # 4s tolerance allows brief helmet misreads (which update
+                        # last_seen via the COMPLIANT branch) without resetting
+                        # the dwell timer.
+                        stale_tc = [k for k, v in temporal_confirm.items() if (now - v['last_seen']) > 4.0]
+                        for k in stale_tc:
+                            del temporal_confirm[k]
+
+                        dwell_time = now - temporal_confirm[tc_key]['first_seen']
+                        if dwell_time < confirm_seconds:
+                            if frame_count % 30 == 0:
+                                print(f"[Temporal] {class_name} at ({bx},{by}) — waiting {dwell_time:.1f}/{confirm_seconds:.1f}s")
+                            continue
+
+                        # ── Majority-vote classification resolution ───────────────
+                        # Count votes accumulated during the dwell window.
+                        votes = temporal_confirm[tc_key]['votes']
+                        total_votes = len(votes)
+                        violation_votes = sum(1 for v in votes if v in VIOLATION_CLASSES)
+                        violation_ratio = violation_votes / total_votes if total_votes else 0
+
+                        # If any violation class reaches the bias threshold
+                        # (default 15%), confirm as the dominant violation class.
+                        # Otherwise fall back to the overall most-common class.
+                        if violation_ratio >= violation_confirm_ratio:
+                            # Pick the most frequent violation class
+                            viol_counts = {}
+                            for v in votes:
+                                if v in VIOLATION_CLASSES:
+                                    viol_counts[v] = viol_counts.get(v, 0) + 1
+                            confirmed_class = max(viol_counts, key=viol_counts.get)
+                        else:
+                            # Overall majority — most likely all helmet (compliant)
+                            class_counts = {}
+                            for v in votes:
+                                class_counts[v] = class_counts.get(v, 0) + 1
+                            confirmed_class = max(class_counts, key=class_counts.get)
+
+                        # If the confirmed class is compliant, skip — no violation.
+                        if confirmed_class in COMPLIANT_CLASSES:
+                            # Clear this bucket so it can re-accumulate if the
+                            # person later becomes a violation again.
+                            del temporal_confirm[tc_key]
+                            continue
+
+                        print(f"[Temporal] CONFIRMED {confirmed_class} at ({bx},{by}) "
+                              f"— {violation_votes}/{total_votes} violation frames "
+                              f"({violation_ratio:.0%}), dwell {dwell_time:.1f}s")
+
+                    # Use the confirmed class for the dedup key
+                    key = f"{confirmed_class}:{bx}:{by}"
+
+                    # Clean up expired entries so last_sent never grows unbounded.
+                    # This keeps the dictionary size tiny (O(1)) regardless of session length.
+                    expired_keys = [k for k, v in last_sent.items() if (now - v['time']) >= send_cooldown]
+                    for k in expired_keys:
+                        del last_sent[k]
+
+                    # Time gate: has enough time passed since the last send for this spatial bucket?
+                    time_gate_open = key not in last_sent
+
+                    # Proximity gate: also check ALL other active buckets — if any
+                    # recent entry (within cooldown) has a bbox centre within 150 px of this
+                    # detection, it is the same ongoing event even if it drifted into an adjacent bucket.
+                    proximity_duplicate = False
+                    if time_gate_open:
+                        for _entry_key, _entry in last_sent.items():
+                            if not _entry_key.startswith(confirmed_class + ':'):
+                                continue
+                            ecx, ecy = _entry['center']
+                            dist = ((cx - ecx) ** 2 + (cy - ecy) ** 2) ** 0.5
+                            if dist < 150:
+                                proximity_duplicate = True
+                                break
+
+                    if time_gate_open and not proximity_duplicate:
+                        last_sent[key] = {'time': now, 'center': (cx, cy)}
+                        # Clear temporal entry after successful send
+                        if tc_key in temporal_confirm:
+                            del temporal_confirm[tc_key]
                         matched_plate_boxes = [
                             plate_info
                             for plate_info in plate_boxes
@@ -737,7 +916,7 @@ def main():
                         pending_violation_payloads.append({
                             'status': 'violation',
                             'confidence': conf,
-                            'classification': class_name,
+                            'classification': confirmed_class,
                             'plate_number': latest_plate,
                             'bounding_box': {'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2)},
                             'detected_objects': {'objects': [{'class': c} for c in frame_classes]},

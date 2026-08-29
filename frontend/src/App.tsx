@@ -33,9 +33,9 @@ const App = () => {
 
     // Check auth on storage change (logout in another tab)
     window.addEventListener('storage', checkAuth);
-    
+
     // Check auth periodically (for same-tab logout)
-    const interval = setInterval(checkAuth, 100);
+    const interval = setInterval(checkAuth, 2000);
 
     return () => {
       window.removeEventListener('storage', checkAuth);
