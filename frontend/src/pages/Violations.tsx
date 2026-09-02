@@ -220,12 +220,40 @@ const Violations = () => {
 
     loadViolations(!hasLoadedOnce);
 
-    const interval = setInterval(async () => {
+    // Auto-refresh the first page so a newly detected violation shows up without
+    // a manual reload.
+    //  - Fast path: the 'saferide-new-violation' window event dispatched by
+    //    useViolationNotifications (its poll fires ~1s after detection), so the
+    //    table updates within ~1-2s.
+    //  - Slow fallback: a 5s interval, for sessions where that poll is not
+    //    running (e.g. live popups disabled).
+    // Both are gated to page 1 so a user paging through history is never yanked
+    // back. Changing any filter resets the view to page 1 (see the effect
+    // above) and this effect re-runs with fresh closures, so a filtered page-1
+    // view refreshes correctly on the event.
+    const refreshFirstPage = () => {
       if (currentPage !== 1) return;
-      await loadViolations(false);
-    }, 10000);
+      void loadViolations(false);
+    };
 
-    return () => clearInterval(interval);
+    // A detection burst fires 'saferide-new-violation' many times in seconds.
+    // Debounce the (heavy) first-page reload so a burst collapses to ONE request
+    // that lands between notification-poll cycles, instead of N heavy
+    // /violations/?page=1 calls starving the 1s /violations/recent/ poll.
+    let eventDebounce: ReturnType<typeof setTimeout> | undefined;
+    const onNewViolation = () => {
+      clearTimeout(eventDebounce);
+      eventDebounce = setTimeout(refreshFirstPage, 1200);
+    };
+
+    window.addEventListener('saferide-new-violation', onNewViolation);
+    const interval = setInterval(refreshFirstPage, 5000); // unchanged fallback
+
+    return () => {
+      window.removeEventListener('saferide-new-violation', onNewViolation);
+      clearTimeout(eventDebounce);
+      clearInterval(interval);
+    };
   }, [
     currentPage,
     itemsPerPage,

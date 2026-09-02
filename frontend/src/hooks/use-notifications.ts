@@ -9,10 +9,11 @@ import { toast } from './use-toast';
 
 const STORAGE_KEY = 'notifications';
 const SETTINGS_KEY = 'notificationSettings';
-// 2 500 ms: fast enough for near-realtime feel, light enough not to hammer the DB.
-// The old 1 500 ms interval was fine for latency but the heavy serializer made each
-// response take 200-400 ms, effectively giving a real cadence of ~2 000 ms anyway.
-const POLL_INTERVAL_MS = 2000;
+// 1 000 ms: /violations/recent/ is now a hand-built lightweight response
+// (~5 fields, <=10 rows, one indexed query), so a 1 s cadence is cheap. The
+// earlier 1 500-2 500 ms values were sized around the old heavy ViolationSerializer
+// that made each response take 200-400 ms.
+const POLL_INTERVAL_MS = 1000;
 const MAX_LOCAL_NOTIFICATIONS = 50;
 
 type NotificationPreferences = {

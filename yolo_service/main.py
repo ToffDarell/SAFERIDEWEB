@@ -22,10 +22,15 @@ def _extract_bbox(box):
     return tuple(int(v) for v in box.xyxy[0].cpu().numpy().astype(int))
 
 
-def _plate_matches_violation(violation_bbox, plate_bbox):
+def _plate_matches_violation(violation_bbox, plate_bbox, slack=1.0):
     """
     Match a plate to the same rider instead of treating any plate anywhere
     in the frame as valid vehicle context.
+
+    slack (>= 1.0) proportionally widens the horizontal padding and the
+    max vertical gap.  It is 1.0 (no change) for every live-frame call;
+    only the recent-plate memory fallback passes RECENT_PLATE_MATCH_SLACK,
+    because the rider has moved slightly since the plate was last seen.
     """
     vx1, vy1, vx2, vy2 = violation_bbox
     px1, py1, px2, py2 = plate_bbox
@@ -35,7 +40,7 @@ def _plate_matches_violation(violation_bbox, plate_bbox):
     plate_height = max(1, py2 - py1)
     plate_center_x = (px1 + px2) / 2
 
-    horizontal_padding = max(violation_width * 0.6, plate_width * 1.5, 24)
+    horizontal_padding = max(violation_width * 0.6, plate_width * 1.5, 24) * slack
     if not (vx1 - horizontal_padding <= plate_center_x <= vx2 + horizontal_padding):
         return False
 
@@ -43,16 +48,25 @@ def _plate_matches_violation(violation_bbox, plate_bbox):
         return False
 
     vertical_gap = py1 - vy2
-    max_vertical_gap = max(plate_width * 5.0, plate_height * 8.0, 140.0)
+    # Absolute floor raised 140 -> 200: with a high-mounted / close-range camera
+    # the head-level violation box can sit ~180 px above a rear-wheel-level plate.
+    # Pedestrian rejection still relies on the horizontal-alignment and
+    # rider-zone-overlap checks, which are unchanged.
+    max_vertical_gap = max(plate_width * 5.0, plate_height * 8.0, 200.0) * slack
     return vertical_gap <= max_vertical_gap
 
 
-def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
+def _violation_overlaps_plate_zone(violation_bbox, plate_bbox, slack=1.0):
     """
     Require the violation bounding box to have meaningful vertical overlap
     with the estimated rider zone above the plate.  This rejects pedestrians
     who are merely *beside* a parked motorcycle plate but not actually above
     or on it.
+
+    slack (>= 1.0) proportionally widens the horizontal-offset tolerance and
+    the rider-zone padding.  It is 1.0 (no change) for every live-frame call;
+    only the recent-plate memory fallback passes RECENT_PLATE_MATCH_SLACK,
+    because the rider has moved slightly since the plate was last seen.
     """
     vx1, vy1, vx2, vy2 = violation_bbox
     px1, py1, px2, py2 = plate_bbox
@@ -66,15 +80,19 @@ def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
     # catches pedestrians walking beside a parked motorcycle.
     violation_center_x = (vx1 + vx2) / 2
     plate_center_x = (px1 + px2) / 2
-    max_horizontal_offset = plate_width * 0.7
-    if abs(violation_center_x - plate_center_x) > max_horizontal_offset:
-        return False
+    # 1.1 (was 0.7): the rider's head bounding box shifts sideways when the
+    # head is turned (over-shoulder / toward camera), moving violation_center_x
+    # off the plate centre. Measured on the same rider/plate: head-forward
+    # offsets ~19-25 px, head-turned ~29-42 px. 1.1 * plate_width covers head
+    # rotation in any direction while staying far under the 480-600 px
+    # separation seen in genuine pedestrian / unrelated-plate cases.
+    max_horizontal_offset = plate_width * 1.1 * slack
 
     # Estimated rider zone: extends from well above the plate to the plate
-    rider_zone_top = py1 - max(plate_height * 10, plate_width * 4, 120)
+    rider_zone_top = py1 - max(plate_height * 10, plate_width * 4, 120) * slack
     rider_zone_bottom = py2
-    rider_zone_left = px1 - plate_width * 0.5
-    rider_zone_right = px2 + plate_width * 0.5
+    rider_zone_left = px1 - plate_width * 0.5 * slack
+    rider_zone_right = px2 + plate_width * 0.5 * slack
 
     # Compute IoU between violation bbox and estimated rider zone
     inter_x1 = max(vx1, rider_zone_left)
@@ -82,14 +100,22 @@ def _violation_overlaps_plate_zone(violation_bbox, plate_bbox):
     inter_x2 = min(vx2, rider_zone_right)
     inter_y2 = min(vy2, rider_zone_bottom)
 
+    violation_area = max(1, (vx2 - vx1) * (vy2 - vy1))
+    if inter_x2 > inter_x1 and inter_y2 > inter_y1:
+        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+    else:
+        inter_area = 0
+
+    if abs(violation_center_x - plate_center_x) > max_horizontal_offset:
+        return False
+
     if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
         return False
 
-    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
-    violation_area = max(1, (vx2 - vx1) * (vy2 - vy1))
-
     # At least 30% of the violation box should overlap the rider zone
-    return (inter_area / violation_area) >= 0.30
+    if (inter_area / violation_area) >= 0.30:
+        return True
+    return False
 
 
 def _draw_status_panel(frame, compliant_count, violation_count, latest_plate):
@@ -141,7 +167,7 @@ def _draw_status_panel(frame, compliant_count, violation_count, latest_plate):
             color,
             thickness,
             cv2.LINE_AA,
-        )            
+        )
 
 
 def _encode_plate_crop(frame_bgr, bbox, quality=90):
@@ -401,6 +427,17 @@ def main():
     mjpeg_resize_width = max(0, int(os.getenv('MJPEG_RESIZE_WIDTH', '960')))
     show_window = os.getenv('SHOW_WINDOW', '1') == '1'
 
+    # ── TEMP DIAG: low-confidence plate probe ───────────────────────────
+    # When a violation candidate exists but NO plate matched it, optionally
+    # re-run YOLO on the same frame at a very low conf (restricted to the
+    # license_plate class) to reveal whether YOLO sees the rider's plate at
+    # all (raw conf ~0 → model/dataset limit) or sees it just under the
+    # conf_license_plate gate (pipeline-tunable). OFF by default: the extra
+    # inference pass roughly doubles the cost of a qualifying frame.
+    plate_probe_enabled = os.getenv('PLATE_LOWCONF_PROBE', '0') == '1'
+    plate_probe_conf = max(0.01, min(0.5, float(os.getenv('PLATE_LOWCONF_PROBE_CONF', '0.05'))))
+    plate_probe_every = max(1, int(os.getenv('PLATE_LOWCONF_PROBE_EVERY', '15')))
+
     conf_threshold, send_cooldown, _, ocr_conf, conf_no_helmet, conf_nutshell, conf_helmet, conf_license_plate = fetch_settings_from_backend()
 
     # Try loading RTSP URL from database camera record first.
@@ -437,7 +474,7 @@ def main():
     print(f"Preview window : {'on' if show_window else 'off'}")
     print("-" * 60)
 
-    model_path = os.path.join('weights', 'V32_YOLO26.pt')
+    model_path = os.path.join('weights', 'v18.pt')
     if not os.path.exists(model_path):
         print(f"ERROR: Model not found at {model_path}")
         return
@@ -445,6 +482,10 @@ def main():
     print(f"Loading YOLO model from: {model_path}")
     model = YOLO(model_path)
     print(f"Model loaded! Classes: {model.names}")
+    _plate_cls_id = next(
+        (cid for cid, cname in model.names.items() if str(cname).lower() == 'license_plate'),
+        None,
+    )
     print("-" * 60)
 
     # ── EasyOCR ──────────────────────────────────────────────────
@@ -575,6 +616,15 @@ def main():
     # key is spatial, never plate-text-based - see dedup logic below.
     last_sent          = {}
 
+    # recent_plate_boxes — short-lived memory of plates seen in prior frames.
+    # Entries: {'bbox': (x1,y1,x2,y2), 'confidence': float,
+    #           'seen_at': float, 'verified': bool}
+    # 'verified' becomes True only once that plate, while live, passed BOTH
+    # _plate_matches_violation and _violation_overlaps_plate_zone (strict,
+    # slack=1.0) against a real violation box. Only verified entries within
+    # recent_plate_window_seconds are eligible as a fallback match.
+    recent_plate_boxes = []
+
     # ── Temporal confirmation gate ───────────────────────────────
     # Tracks when a spatial bucket was *first* seen passing all geometric
     # checks.  A detection is only promoted to a confirmed violation once
@@ -590,6 +640,17 @@ def main():
     # Raw YOLO confidence at or above which a geometrically-valid violation
     # skips the temporal_confirm dwell/vote step and is sent immediately.
     instant_confirm_conf = max(0.0, min(1.0, float(os.getenv('INSTANT_CONFIRM_CONF', '0.85'))))
+
+    # ── Recent-plate memory ─────────────────────────────────────
+    # A plate seen within this window can still be associated with a LATER
+    # violation frame that has zero plate detections of its own — this bridges
+    # the frame-to-frame license_plate flicker on fast-moving motorcycles.
+    # Set to 0 to disable the fallback entirely.
+    recent_plate_window_seconds = max(0.0, float(os.getenv('RECENT_PLATE_WINDOW_SECONDS', '0.5')))
+    # Padding multiplier applied to the geometry tolerances for a REMEMBERED
+    # plate only (the rider has moved a little since it was last seen).
+    # Live-frame matching always uses slack = 1.0 and is unchanged.
+    RECENT_PLATE_MATCH_SLACK = 1.2
     # Class-agnostic spatial bucket -> {first_seen, last_seen, votes[]}
     # The key is ONLY the grid position (no class_name) so that flicker
     # between no_helmet / nutshell / helmet at the same location shares
@@ -598,6 +659,15 @@ def main():
 
     VIOLATION_CLASSES = ['no_helmet', 'nutshell']
     COMPLIANT_CLASSES = ['helmet']
+
+    # Classes that skip the stable_classes (2-of-3 frame) gate.
+    #  - Violation classes: smoothing is handled by temporal_confirm's
+    #    majority-vote, a strictly better mechanism than frame stability.
+    #  - license_plate: a fast-moving motorcycle often shows a clear,
+    #    high-confidence plate for only a single frame; dropping it there
+    #    breaks plate association for that pass. conf_license_plate + the
+    #    geometry checks + OCR format validation still gate it.
+    STABILITY_BYPASS_CLASSES = set(VIOLATION_CLASSES) | {'license_plate'}
 
     PER_CLASS_CONF = {
         'no_helmet':     conf_no_helmet,
@@ -643,6 +713,14 @@ def main():
             compliant_count = 0
             violation_count = 0
 
+            # One-time resolution sanity check: confirm the frame fed to YOLO and
+            # the frame used for plate crops (results.orig_img) are BOTH at the
+            # camera's native stream resolution — not the imgsz used for inference.
+            if frame_count == 1:
+                print(f"[Res] frame_data (capture -> predict) : {frame_data.shape[1]}x{frame_data.shape[0]}")
+                print(f"[Res] results.orig_img (-> crop/OCR)  : {results.orig_img.shape[1]}x{results.orig_img.shape[0]}")
+                print(f"[Res] YOLO inference imgsz             : {yolo_imgsz} (internal only; boxes rescaled to native)")
+
             # ── Read latest plate from OCR thread (non-blocking) ──
             latest_plate, plate_updated_at = ocr_state.get()
             if latest_plate and (now - plate_updated_at) > plate_hold_seconds:
@@ -670,16 +748,34 @@ def main():
                 list(results.boxes) if results.boxes is not None else []
             )
 
+            # ── TEMP DIAG: raw license_plate detections this frame ────────
+            # Every license_plate box YOLO returned at the global predict conf,
+            # BEFORE the stricter conf_license_plate gate and BEFORE the
+            # stable_classes (2-of-3 frame) gate. Lets us tell apart:
+            #   "plate never seen" vs "seen but low conf" vs "seen but not stable".
+            # Note: detections below the global conf_threshold passed to
+            # model.predict() are already dropped by YOLO and cannot appear here.
+            raw_plate_confs = sorted(
+                (
+                    float(b.conf[0])
+                    for b in (results.boxes if results.boxes is not None else [])
+                    if model.names[int(b.cls[0])].lower() == "license_plate"
+                ),
+                reverse=True,
+            )
+            plate_in_stable_classes = "license_plate" in stable_classes
+
             frame_classes = []
             plate_boxes = []
             candidate_violation_boxes = []
             for box in boxes_filtered:
                 cls_id = int(box.cls[0])
                 cname  = model.names[cls_id].lower()
-                # Violation classes bypass stable_classes — the temporal
-                # confirmation gate (majority-vote) is a strictly better
-                # smoothing mechanism than requiring 2-of-3 frame stability.
-                if cname not in VIOLATION_CLASSES and cname not in stable_classes:
+                # Violation classes + license_plate bypass stable_classes
+                # (see STABILITY_BYPASS_CLASSES). Violation smoothing is handled
+                # by temporal_confirm's majority-vote; plates are gated by
+                # conf_license_plate + geometry + OCR format validation instead.
+                if cname not in STABILITY_BYPASS_CLASSES and cname not in stable_classes:
                     continue
 
                 frame_classes.append(cname)
@@ -698,6 +794,92 @@ def main():
                     _plate_matches_violation(violation_info['bbox'], plate_info['bbox'])
                     for violation_info in candidate_violation_boxes
                 )
+            ]
+
+            # ── TEMP DIAG: low-conf plate probe (see PLATE_LOWCONF_PROBE) ─────
+            # Only when this frame has a violation candidate but nothing matched
+            # a plate. Re-runs YOLO at plate_probe_conf, license_plate only, and
+            # logs what the plate head scores vs the conf_license_plate gate,
+            # plus the rider-box size (a proxy for distance). Diagnostic only —
+            # nothing here feeds detection/geometry/dedup logic.
+            if (
+                plate_probe_enabled
+                and _plate_cls_id is not None
+                and candidate_violation_boxes
+                and not associated_plate_boxes
+                and frame_count % plate_probe_every == 0
+            ):
+                _fh, _fw = frame_data.shape[:2]
+                _scale = yolo_imgsz / max(_fw, _fh)
+                _probe = model.predict(
+                    frame_data, conf=plate_probe_conf, classes=[_plate_cls_id],
+                    iou=0.5, verbose=False, device=yolo_device, imgsz=yolo_imgsz,
+                    half=yolo_half,
+                )[0]
+                _raw = sorted(
+                    (
+                        (float(pb.conf[0]), tuple(int(v) for v in pb.xyxy[0].cpu().numpy().astype(int)))
+                        for pb in (_probe.boxes if _probe.boxes is not None else [])
+                    ),
+                    reverse=True,
+                )
+                for _vinfo in candidate_violation_boxes:
+                    _vx1, _vy1, _vx2, _vy2 = _vinfo['bbox']
+                    _vcx = (_vx1 + _vx2) / 2
+                    print(
+                        f"[PlateProbe] frame={frame_count} vbox=({_vx1},{_vy1},{_vx2},{_vy2}) "
+                        f"vbox_size={_vx2 - _vx1}x{_vy2 - _vy1} "
+                        f"(~{(_vx2 - _vx1) * _scale:.0f}x{(_vy2 - _vy1) * _scale:.0f} @imgsz{yolo_imgsz}) "
+                        f"native={_fw}x{_fh} | gate conf_license_plate={conf_license_plate} probe_conf={plate_probe_conf}"
+                    )
+                    if not _raw:
+                        print(f"[PlateProbe]   NO license_plate detections at conf>={plate_probe_conf} "
+                              f"-> YOLO is blind to every plate in this frame")
+                        continue
+                    for _pconf, (_rx1, _ry1, _rx2, _ry2) in _raw:
+                        _pw, _ph = _rx2 - _rx1, _ry2 - _ry1
+                        _dx = abs((_rx1 + _rx2) / 2 - _vcx)
+                        _match = _plate_matches_violation(_vinfo['bbox'], (_rx1, _ry1, _rx2, _ry2))
+                        print(
+                            f"[PlateProbe]   plate conf={_pconf:.3f} bbox=({_rx1},{_ry1},{_rx2},{_ry2}) "
+                            f"size={_pw}x{_ph} (~{_pw * _scale:.0f}x{_ph * _scale:.0f} @imgsz) "
+                            f"dx_to_vbox_center={_dx:.0f}px "
+                            f"above_gate={'Y' if _pconf >= conf_license_plate else 'N'} "
+                            f"geo_matches_this_rider={'Y' if _match else 'N'}"
+                        )
+
+            # ── Update recent-plate memory ─────────────────────────────
+            # Record every plate seen this frame. Mark it 'verified' if it
+            # already clears BOTH geometry gates (strict, slack=1.0) against
+            # a current-frame violation candidate — that is the bar for it to
+            # be reusable as a fallback in a later, plate-less frame.
+            for plate_info in plate_boxes:
+                verified_live = any(
+                    _plate_matches_violation(v['bbox'], plate_info['bbox'])
+                    and _violation_overlaps_plate_zone(v['bbox'], plate_info['bbox'])
+                    for v in candidate_violation_boxes
+                )
+                recent_plate_boxes.append({
+                    'bbox': plate_info['bbox'],
+                    'confidence': plate_info['confidence'],
+                    'seen_at': now,
+                    'verified': verified_live,
+                    # Crop taken NOW, while the plate is actually in frame, so a
+                    # later plate-less frame bridged by recent-plate memory still
+                    # ships a real plate image. Only for verified entries (the
+                    # only ones eligible as a fallback match).
+                    'crop_jpeg': (
+                        _encode_plate_crop(
+                            results.orig_img, plate_info['bbox'],
+                            quality=int(os.getenv('PLATE_CROP_JPEG_QUALITY', '92')),
+                        )
+                        if verified_live else None
+                    ),
+                })
+            # Prune anything older than the memory window.
+            recent_plate_boxes = [
+                e for e in recent_plate_boxes
+                if (now - e['seen_at']) <= recent_plate_window_seconds
             ]
 
             # ── Submit plate crops to OCR thread (non-blocking) ───
@@ -725,9 +907,10 @@ def main():
                 cls_id     = int(box.cls[0])
                 class_name = model.names[cls_id].lower()
 
-                # Violation classes bypass stable_classes — temporal_confirm
-                # handles smoothing via majority-vote over the dwell window.
-                if class_name not in VIOLATION_CLASSES and class_name not in stable_classes:
+                # Violation classes + license_plate bypass stable_classes
+                # (see STABILITY_BYPASS_CLASSES). temporal_confirm handles
+                # violation smoothing via majority-vote over the dwell window.
+                if class_name not in STABILITY_BYPASS_CLASSES and class_name not in stable_classes:
                     continue
 
                 class_conf_min = PER_CLASS_CONF.get(class_name, conf_threshold)
@@ -763,16 +946,79 @@ def main():
                         for plate_info in plate_boxes
                     )
 
+                    # ── Recent-plate memory fallback ───────────────────────
+                    # Live frame has no matching plate (common on a fast bike:
+                    # license_plate flickers off every other frame). If exactly
+                    # ONE plate was seen & verified very recently, and this is
+                    # the ONLY violation candidate in view, bridge the gap with
+                    # that remembered plate using slightly widened padding.
+                    matched_via_memory = False
                     if not has_associated_plate:
+                        eligible_recent = [
+                            e for e in recent_plate_boxes
+                            if e['verified']
+                            and (now - e['seen_at']) <= recent_plate_window_seconds
+                        ]
+                        # Collapse to "one plate recently": every eligible entry
+                        # must sit near the newest one (same plate drifting),
+                        # otherwise the scene is ambiguous (multi-bike) and we
+                        # do not risk a wrong association.
+                        single_recent_plate = False
+                        if eligible_recent:
+                            rb = eligible_recent[-1]['bbox']
+                            rcx, rcy = (rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2
+                            single_recent_plate = all(
+                                (((e['bbox'][0] + e['bbox'][2]) / 2 - rcx) ** 2
+                                 + ((e['bbox'][1] + e['bbox'][3]) / 2 - rcy) ** 2) ** 0.5 <= 150
+                                for e in eligible_recent
+                            )
+
+                        if (
+                            single_recent_plate
+                            and len(candidate_violation_boxes) == 1
+                            and _plate_matches_violation(
+                                (x1, y1, x2, y2), eligible_recent[-1]['bbox'],
+                                slack=RECENT_PLATE_MATCH_SLACK,
+                            )
+                            and _violation_overlaps_plate_zone(
+                                (x1, y1, x2, y2), eligible_recent[-1]['bbox'],
+                                slack=RECENT_PLATE_MATCH_SLACK,
+                            )
+                        ):
+                            matched_via_memory = True
+                            if frame_count % 30 == 0:
+                                age = now - eligible_recent[-1]['seen_at']
+                                print(f"[PlateAssoc] MATCHED via recent memory, plate age={age:.2f}s")
+
+                    if not has_associated_plate and not matched_via_memory:
                         if frame_count % 30 == 0:
+                            # Diagnostic: why did plate association fail this frame?
+                            #   plate_boxes            = plates past conf_license_plate + stable gate
+                            #   raw_yolo_license_plate = plates YOLO saw regardless of those gates
+                            print(
+                                f"[PlateAssoc] SKIP {class_name} conf={conf:.2f} "
+                                f"vbox=({x1},{y1},{x2},{y2}) vbox_size={x2 - x1}x{y2 - y1} frame={frame_count} "
+                                f"| plate_boxes={len(plate_boxes)} "
+                                f"details={[(round(p['confidence'], 2), p['bbox']) for p in plate_boxes]} "
+                                f"| raw_yolo_license_plate={len(raw_plate_confs)} "
+                                f"raw_confs={[round(c, 2) for c in raw_plate_confs]} "
+                                f"| in_stable_classes={plate_in_stable_classes} "
+                                f"| conf_license_plate_thr={conf_license_plate}"
+                            )
                             print(f"[Skipped] {class_name} - no associated motorcycle plate for this detection")
                         continue
 
-                    has_rider_overlap = any(
-                        _violation_overlaps_plate_zone((x1, y1, x2, y2), plate_info['bbox'])
-                        for plate_info in plate_boxes
-                        if _plate_matches_violation((x1, y1, x2, y2), plate_info['bbox'])
-                    )
+                    if matched_via_memory:
+                        # Already validated against the remembered plate above
+                        # (with widened padding); the live re-check below would
+                        # fail anyway because plate_boxes is empty this frame.
+                        has_rider_overlap = True
+                    else:
+                        has_rider_overlap = any(
+                            _violation_overlaps_plate_zone((x1, y1, x2, y2), plate_info['bbox'])
+                            for plate_info in plate_boxes
+                            if _plate_matches_violation((x1, y1, x2, y2), plate_info['bbox'])
+                        )
                     if not has_rider_overlap:
                         if frame_count % 30 == 0:
                             print(f"[Skipped] {class_name} - person not overlapping rider zone (likely pedestrian)")
@@ -801,8 +1047,9 @@ def main():
                     # temporal_confirm gate below, unchanged.
                     if conf >= instant_confirm_conf:
                         confirmed_class = class_name
-                        print(f"[Instant] CONFIRMED {confirmed_class} at ({bx},{by}) "
-                              f"— conf {conf:.2f} >= {instant_confirm_conf:.2f}, no dwell")
+                        if frame_count % 30 == 0:
+                            print(f"[Instant] CONFIRMED {confirmed_class} at ({bx},{by}) "
+                                  f"— conf {conf:.2f} >= {instant_confirm_conf:.2f}, no dwell")
                     else:
                         if tc_key in temporal_confirm:
                             temporal_confirm[tc_key]['last_seen'] = now
@@ -852,6 +1099,18 @@ def main():
                                 class_counts[v] = class_counts.get(v, 0) + 1
                             confirmed_class = max(class_counts, key=class_counts.get)
 
+                        # ── Audit log: vote breakdown for the temporal path ──────
+                        # Printed (throttled) whenever the dwell+vote path resolves
+                        # a classification, so close calls between no_helmet /
+                        # nutshell stay traceable in the logs.
+                        if frame_count % 30 == 0:
+                            _nh = sum(1 for v in votes if v == 'no_helmet')
+                            _ns = sum(1 for v in votes if v == 'nutshell')
+                            _hl = sum(1 for v in votes if v == 'helmet')
+                            print(f"[Temporal] Vote breakdown: {_nh} no_helmet, {_ns} nutshell, "
+                                  f"{_hl} helmet -> confirmed {confirmed_class} "
+                                  f"(dwell {dwell_time:.1f}s, {total_votes} frames)")
+
                         # If the confirmed class is compliant, skip — no violation.
                         if confirmed_class in COMPLIANT_CLASSES:
                             # Clear this bucket so it can re-accumulate if the
@@ -859,9 +1118,10 @@ def main():
                             del temporal_confirm[tc_key]
                             continue
 
-                        print(f"[Temporal] CONFIRMED {confirmed_class} at ({bx},{by}) "
-                              f"— {violation_votes}/{total_votes} violation frames "
-                              f"({violation_ratio:.0%}), dwell {dwell_time:.1f}s")
+                        if frame_count % 30 == 0:
+                            print(f"[Temporal] CONFIRMED {confirmed_class} at ({bx},{by}) "
+                                  f"— {violation_votes}/{total_votes} violation frames "
+                                  f"({violation_ratio:.0%}), dwell {dwell_time:.1f}s")
 
                     # Use the confirmed class for the dedup key
                     key = f"{confirmed_class}:{bx}:{by}"
@@ -891,6 +1151,16 @@ def main():
 
                     if time_gate_open and not proximity_duplicate:
                         last_sent[key] = {'time': now, 'center': (cx, cy)}
+
+                        # ── Evidence-image consistency (Option A) ────────────────
+                        # `label` was built from THIS frame's raw class_name, but
+                        # the stored classification is `confirmed_class` (the
+                        # temporal majority-vote result). Relabel the box now, so
+                        # the common draw path below burns the corrected label
+                        # into `annotated_frame` before it is encoded and sent as
+                        # evidence — the image and the DB record can never diverge.
+                        label = f"VIOLATION: {confirmed_class.replace('_', ' ').title()} ({conf:.2f})"
+
                         # Clear temporal entry after successful send
                         if tc_key in temporal_confirm:
                             del temporal_confirm[tc_key]
@@ -904,15 +1174,19 @@ def main():
                             if matched_plate_boxes
                             else None
                         )
-                        plate_crop_jpeg = (
-                            _encode_plate_crop(
+                        if best_matched_plate is not None:
+                            plate_crop_jpeg = _encode_plate_crop(
                                 results.orig_img,
                                 best_matched_plate['bbox'],
                                 quality=int(os.getenv('PLATE_CROP_JPEG_QUALITY', '92')),
                             )
-                            if best_matched_plate
-                            else None
-                        )
+                        elif matched_via_memory and eligible_recent:
+                            # No live plate this frame — reuse the crop captured
+                            # when the remembered plate was last actually seen
+                            # (<= recent_plate_window_seconds old).
+                            plate_crop_jpeg = eligible_recent[-1].get('crop_jpeg')
+                        else:
+                            plate_crop_jpeg = None
                         pending_violation_payloads.append({
                             'status': 'violation',
                             'confidence': conf,
@@ -927,6 +1201,10 @@ def main():
                     color = (0, 255, 255)
                     label = f"PLATE: {latest_plate} ({conf:.2f})" if latest_plate else f"PLATE ({conf:.2f})"
 
+                # Draw path: reached only by COMPLIANT (green), license_plate,
+                # and a confirmed violation (red, sent or dedup-suppressed).
+                # The plate-association / rider-zone / dwell / vote-compliant
+                # `continue` paths above draw nothing.
                 cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
                 (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
                 cv2.rectangle(annotated_frame, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)

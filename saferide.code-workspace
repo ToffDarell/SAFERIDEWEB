@@ -37,6 +37,6 @@
       "editor.defaultFormatter": "ms-python.python",
       "editor.formatOnSave": true
     },
-    "liveServer.settings.multiRootWorkspaceName": "Frontend"
+    "liveServer.settings.multiRootWorkspaceName": "Graphify Output"
   }
 }

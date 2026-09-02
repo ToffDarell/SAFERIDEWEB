@@ -127,6 +127,11 @@ DATABASES = {
         "PASSWORD": config('DB_PASSWORD'),
         "HOST": config('DB_HOST', default='localhost'),
         "PORT": config('DB_PORT', default='3306'),
+        # Reuse each worker thread's MySQL connection for up to 60s instead of
+        # opening a fresh one per request — trims connection-setup latency off
+        # every endpoint, including the 1s /violations/recent/ notification poll.
+        # 60s << MySQL's default wait_timeout (28800s), so no stale-connection risk.
+        "CONN_MAX_AGE": 60,
         "OPTIONS": {
             "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
         },

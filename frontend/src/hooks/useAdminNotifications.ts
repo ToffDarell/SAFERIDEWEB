@@ -47,14 +47,20 @@ export const useAdminNotifications = (scope: 'alerts' | 'activity' = 'alerts') =
       loadNotifications(false);
     }, 15000);
 
+    // Debounce the burst of 'saferide-new-violation' events so a detection storm
+    // triggers ONE admin-notifications reload, not one per violation (which
+    // otherwise competes with the 1s notification poll on the dev server).
+    let eventDebounce: ReturnType<typeof setTimeout> | undefined;
     const handleNewViolation = () => {
-      loadNotifications(false);
+      clearTimeout(eventDebounce);
+      eventDebounce = setTimeout(() => loadNotifications(false), 1200);
     };
     window.addEventListener('saferide-new-violation', handleNewViolation);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
+      clearTimeout(eventDebounce);
       window.removeEventListener('saferide-new-violation', handleNewViolation);
     };
   }, [isAdmin, scope]);
