@@ -210,7 +210,10 @@ SIMPLE_JWT = {
 
 # Allauth settings
 SOCIALACCOUNT_AUTO_SIGNUP = True
-ACCOUNT_LOGIN_METHODS = {'email', 'username'}
+# allauth 0.57 reads ACCOUNT_AUTHENTICATION_METHOD (the set-style ACCOUNT_LOGIN_METHODS
+# is only honoured from allauth 0.58+). 'username_email' lets a user sign in with
+# EITHER their username or their email address.
+ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 

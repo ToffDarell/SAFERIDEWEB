@@ -110,6 +110,19 @@ class AdminNotification(models.Model):
         ('plate_search', 'Plate Search'),
         ('report_export', 'Report Export'),
         ('settings_changed', 'Settings Changed'),
+        ('user_login', 'User Login'),
+        ('user_logout', 'User Logout'),
+        ('violation_deleted', 'Violation Deleted'),
+        ('evidence_download', 'Evidence Download'),
+        ('user_account_created', 'User Account Created'),
+        ('user_approved', 'User Approved'),
+        ('user_rejected', 'User Rejected'),
+        ('user_deleted', 'User Deleted'),
+        ('user_permissions_changed', 'User Permissions Changed'),
+        ('camera_created', 'Camera Created'),
+        ('camera_updated', 'Camera Updated'),
+        ('camera_deleted', 'Camera Deleted'),
+        ('user_account_updated', 'User Account Updated'),
     ]
 
     actor = models.ForeignKey(
@@ -152,51 +165,96 @@ class AdminNotification(models.Model):
         return [choice[0] for choice in cls.NOTIFICATION_TYPE_CHOICES]
 
     @classmethod
+    def _role_label(cls, user):
+        """Human-readable role label for a user, used across activity-log messages."""
+        if not user:
+            return 'User'
+        profile = getattr(user, 'profile', None)
+        if profile:
+            return profile.get_role_display()
+        if user.is_superuser or user.is_staff:
+            return 'TMC Administrator'
+        return 'User'
+
+    @classmethod
     def create_for_violation_action(cls, *, actor, violation, previous_status, new_status):
-        role = UserProfile.objects.filter(user=actor).values_list('role', flat=True).first()
-        if role != 'tmc_operator':
+        if not actor:
             return None
 
         actor_name = actor.get_full_name().strip() or actor.username
+        role_label = cls._role_label(actor)
         plate_number = violation.plate_number or 'Unknown plate'
 
         return cls.objects.create(
             actor=actor,
             violation=violation,
             notification_type='violation_action',
-            title='Operator updated a violation action',
+            title='Violation status updated',
             message=(
-                f"{actor_name} changed violation #{violation.id} "
+                f"{actor_name} ({role_label}) changed violation #{violation.id} "
                 f"({plate_number}) from {previous_status} to {new_status}."
             ),
         )
 
     @classmethod
     def create_for_plate_correction(cls, *, actor, violation, original_plate, corrected_plate):
-        role = UserProfile.objects.filter(user=actor).values_list('role', flat=True).first()
-        if role != 'tmc_operator':
+        if not actor:
             return None
 
         actor_name = actor.get_full_name().strip() or actor.username
+        role_label = cls._role_label(actor)
 
         return cls.objects.create(
             actor=actor,
             violation=violation,
             notification_type='violation_action',
-            title='Operator corrected plate number',
+            title='Plate number corrected',
             message=(
-                f"{actor_name} corrected plate number for violation #{violation.id} "
+                f"{actor_name} ({role_label}) corrected plate number for violation #{violation.id} "
                 f"from '{original_plate}' to '{corrected_plate}'."
             ),
         )
 
     @classmethod
-    def create_for_evidence_view(cls, *, actor, violation):
+    def create_for_violation_deleted(cls, *, actor, violation_id, plate_number, classification, camera_name, review_status):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        role_label = cls._role_label(actor)
+        plate_label = plate_number or 'Unknown plate'
+
+        return cls.objects.create(
+            actor=actor,
+            violation=None,
+            notification_type='violation_deleted',
+            title='Violation deleted',
+            message=(
+                f"{actor_name} ({role_label}) deleted violation #{violation_id} "
+                f"({plate_label}, {classification}, {camera_name}, status was {review_status})."
+            ),
+        )
+
+    @classmethod
+    def create_for_evidence_view(cls, *, actor, violation, downloaded=False, variant='evidence'):
         if not actor or not actor.is_authenticated:
             return None
 
         actor_name = actor.get_full_name().strip() or actor.username
         plate_number = violation.plate_number or 'Unknown plate'
+        variant_label = 'plate crop' if variant == 'plate' else 'evidence image'
+
+        if downloaded:
+            return cls.objects.create(
+                actor=actor,
+                violation=violation,
+                notification_type='evidence_download',
+                title='Evidence downloaded',
+                message=(
+                    f"{actor_name} downloaded the {variant_label} for violation #{violation.id} "
+                    f"({plate_number})."
+                ),
+            )
 
         return cls.objects.create(
             actor=actor,
@@ -204,7 +262,7 @@ class AdminNotification(models.Model):
             notification_type='evidence_view',
             title='Evidence image viewed',
             message=(
-                f"{actor_name} viewed the evidence image for violation #{violation.id} "
+                f"{actor_name} viewed the {variant_label} for violation #{violation.id} "
                 f"({plate_number})."
             ),
         )
@@ -258,6 +316,206 @@ class AdminNotification(models.Model):
                 f"New {classification.lower()} detection recorded from {camera_name} "
                 f"for violation #{violation.id} ({plate_number})."
             ),
+        )
+
+    @classmethod
+    def create_for_user_login(cls, *, user, method='password'):
+        if not user or not user.is_authenticated:
+            return None
+
+        actor_name = user.get_full_name().strip() or user.username
+        role_label = cls._role_label(user)
+        is_google = str(method).lower() == 'google'
+        method_label = 'Google' if is_google else 'password'
+        title = 'User signed in via Google' if is_google else 'User signed in'
+
+        return cls.objects.create(
+            actor=user,
+            notification_type='user_login',
+            title=title,
+            message=f"{actor_name} ({role_label}) signed in to the system via {method_label}.",
+        )
+
+    @classmethod
+    def create_for_user_logout(cls, *, user):
+        if not user or not user.is_authenticated:
+            return None
+
+        actor_name = user.get_full_name().strip() or user.username
+        role_label = cls._role_label(user)
+
+        return cls.objects.create(
+            actor=user,
+            notification_type='user_logout',
+            title='User signed out',
+            message=f"{actor_name} ({role_label}) signed out of the system.",
+        )
+
+    @classmethod
+    def create_for_user_account_created(cls, *, actor, created_user, role):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        role_label = dict(UserProfile.ROLE_CHOICES).get(role, role)
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_account_created',
+            title='User account created',
+            message=(
+                f"{actor_name} created a new {role_label} account for "
+                f"{created_user.username} ({created_user.email})."
+            ),
+        )
+
+    @classmethod
+    def create_for_user_approved(cls, *, actor, target_user):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_approved',
+            title='User account approved',
+            message=(
+                f"{actor_name} approved the account for "
+                f"{target_user.username} ({target_user.email})."
+            ),
+        )
+
+    @classmethod
+    def create_for_user_rejected(cls, *, actor, target_user):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_rejected',
+            title='User account rejected',
+            message=(
+                f"{actor_name} rejected the account for "
+                f"{target_user.username} ({target_user.email})."
+            ),
+        )
+
+    @classmethod
+    def create_for_user_deleted(cls, *, actor, target_username, target_email, target_role):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        role_label = dict(UserProfile.ROLE_CHOICES).get(target_role, target_role or 'Unknown role')
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_deleted',
+            title='User account deleted',
+            message=(
+                f"{actor_name} deleted the {role_label} account "
+                f"{target_username} ({target_email})."
+            ),
+        )
+
+    @classmethod
+    def create_for_user_account_updated(cls, *, actor, target_user, changes):
+        if not actor or not changes:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        diff_text = ', '.join(
+            f"{field}: '{old}' → '{new}'"
+            for field, (old, new) in changes.items()
+        )
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_account_updated',
+            title='User account updated',
+            message=(
+                f"{actor_name} updated the account for {target_user.username} "
+                f"({target_user.email}): {diff_text}."
+            ),
+        )
+
+    @classmethod
+    def create_for_permissions_changed(cls, *, actor, target_user, old_permissions, new_permissions):
+        if not actor:
+            return None
+
+        old_permissions = old_permissions or {}
+        new_permissions = new_permissions or {}
+        changed_keys = sorted(
+            key for key in set(old_permissions) | set(new_permissions)
+            if old_permissions.get(key) != new_permissions.get(key)
+        )
+        if not changed_keys:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        diff_text = ', '.join(
+            f"{key}: {old_permissions.get(key)} → {new_permissions.get(key)}"
+            for key in changed_keys
+        )
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='user_permissions_changed',
+            title='User permissions updated',
+            message=(
+                f"{actor_name} updated permissions for "
+                f"{target_user.username} ({target_user.email}): {diff_text}."
+            ),
+        )
+
+    @classmethod
+    def create_for_camera_created(cls, *, actor, camera):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='camera_created',
+            title='Camera added',
+            message=f"{actor_name} added a new camera: {camera.name}.",
+        )
+
+    @classmethod
+    def create_for_camera_updated(cls, *, actor, camera, changes):
+        if not actor or not changes:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+        diff_text = ', '.join(
+            f"{field}: {old} → {new}"
+            for field, (old, new) in changes.items()
+        )
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='camera_updated',
+            title='Camera updated',
+            message=f"{actor_name} updated camera {camera.name}: {diff_text}.",
+        )
+
+    @classmethod
+    def create_for_camera_deleted(cls, *, actor, camera_id, camera_name):
+        if not actor:
+            return None
+
+        actor_name = actor.get_full_name().strip() or actor.username
+
+        return cls.objects.create(
+            actor=actor,
+            notification_type='camera_deleted',
+            title='Camera deleted',
+            message=f"{actor_name} deleted camera #{camera_id} ({camera_name}).",
         )
 
 

@@ -15,6 +15,11 @@ const SETTINGS_KEY = 'notificationSettings';
 // that made each response take 200-400 ms.
 const POLL_INTERVAL_MS = 1000;
 const MAX_LOCAL_NOTIFICATIONS = 50;
+// A single poll returning >= this many rows is treated as a reconnect/catch-up
+// (quiet sync, no sound) rather than a live burst (red alarm + sound). Dedup +
+// the 3s send cooldown make >=5 genuine violations inside one 1s poll effectively
+// impossible, so a batch this size is a backlog from a stalled/offline poll.
+const CATCHUP_THRESHOLD = 5;
 
 type NotificationPreferences = {
   live_violation_popups: boolean;
@@ -128,7 +133,14 @@ export const useViolationNotifications = () => {
 
     const checkNewViolations = async () => {
       try {
-        const sinceId = isBootstrappedRef.current ? maxSeenIdRef.current : undefined;
+        // Once bootstrapped, poll incrementally from the high-water mark. If
+        // bootstrap completed on an empty response (maxSeenId still 0), keep
+        // fetching the newest page (no since_id) instead of sending since_id=0 —
+        // the backend reads that as "id > 0" and would return the whole history.
+        const sinceId =
+          isBootstrappedRef.current && maxSeenIdRef.current > 0
+            ? maxSeenIdRef.current
+            : undefined;
         const recentViolations = await violationsService.getRecentViolations(sinceId);
 
         if (!isMounted) {
@@ -148,8 +160,19 @@ export const useViolationNotifications = () => {
         if (recentViolations.length > 0) {
           const preferences = readNotificationPreferences();
 
+          // A large batch in a single poll is a catch-up after the poll was
+          // starved/offline (server contention, backgrounded tab), not that many
+          // riders in ~1s. Sync it quietly rather than firing a red alarm + sound.
+          const isCatchUp = recentViolations.length >= CATCHUP_THRESHOLD;
+
           if (preferences.live_violation_popups) {
-            if (recentViolations.length >= 3) {
+            if (isCatchUp) {
+              toast({
+                title: `Synced ${recentViolations.length} recent violations`,
+                description: 'The live feed reconnected and caught up.',
+                duration: preferences.auto_hide_ms,
+              });
+            } else if (recentViolations.length >= 3) {
               toast({
                 title: `${recentViolations.length} New Violations Detected!`,
                 description: recentViolations
@@ -169,7 +192,7 @@ export const useViolationNotifications = () => {
               });
             }
 
-            if (preferences.notification_sound) {
+            if (preferences.notification_sound && !isCatchUp) {
               playNotificationTone();
             }
           }
@@ -184,7 +207,7 @@ export const useViolationNotifications = () => {
             new CustomEvent('saferide-new-violation', { detail: latestViolation })
           );
 
-          // Advance high-water mark
+          // Advance high-water mark — always, so a gap can never silently reopen.
           const newMax = Math.max(...recentViolations.map((v) => v.id));
           if (newMax > maxSeenIdRef.current) {
             maxSeenIdRef.current = newMax;

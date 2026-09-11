@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, History, FileSpreadsheet } from 'lucide-react';
+import { Bell, Shield, Database, Monitor, User, Palette, Eye, EyeOff, Lock, Camera, Users, AlertCircle, Trash2, RefreshCw, ChevronDown, ChevronUp, History, FileSpreadsheet, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -51,7 +51,7 @@ const Settings = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [showAddOperator, setShowAddOperator] = useState(false);
-  const [newOperator, setNewOperator] = useState({ name: '', email: '', password: '', role: 'tmc_operator' });
+  const [newOperator, setNewOperator] = useState({ name: '', username: '', email: '', password: '', role: 'tmc_operator' });
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [creatingOperator, setCreatingOperator] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -162,8 +162,12 @@ const Settings = () => {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  const [userToDelete, setUserToDelete] = useState<{ id: number; name: string } | null>(null);
   const [expandedPermissionUserId, setExpandedPermissionUserId] = useState<number | null>(null);
   const [updatingPermissionStates, setUpdatingPermissionStates] = useState<Record<string, boolean>>({});
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ first_name: '', last_name: '', username: '', email: '' });
+  const [savingUserEdit, setSavingUserEdit] = useState(false);
   const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'tmc_operator'>('all');
   const [userDateFilter, setUserDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
 
@@ -399,13 +403,55 @@ const Settings = () => {
     }
   };
 
-  const handleDeleteUser = async (userId: number, username: string) => {
-    if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  const startEditUser = (u: any) => {
+    setEditingUserId((prev) => {
+      const next = prev === u.id ? null : u.id;
+      if (next) {
+        setExpandedPermissionUserId(null);
+        setEditUserForm({
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+          username: u.username || '',
+          email: u.email || '',
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleSaveUserEdit = async (userId: number) => {
+    if (!editUserForm.username.trim()) {
+      toast({ title: 'Username Required', description: 'Username must not be empty.', variant: 'destructive' });
+      return;
+    }
+    if (!editUserForm.email.trim()) {
+      toast({ title: 'Email Required', description: 'Email must not be empty.', variant: 'destructive' });
+      return;
+    }
+    setSavingUserEdit(true);
+    try {
+      const updated = await usersService.updateOperatorProfile(userId, editUserForm);
+      setUsersList((prev) =>
+        prev.map((user) => (user.id === userId ? { ...user, ...updated } : user))
+      );
+      toast({ title: 'User Updated', description: 'Account details were saved successfully.' });
+      setEditingUserId(null);
+    } catch (err: any) {
+      toast({ title: 'Update Failed', description: err?.message ?? 'Could not update user.', variant: 'destructive' });
+    } finally {
+      setSavingUserEdit(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+    const { id: userId, name: username } = userToDelete;
     setDeletingUserId(userId);
     try {
       await usersService.deleteUser(userId);
       setUsersList((prev) => prev.filter((u) => u.id !== userId));
       toast({ title: 'User Deleted', description: `"${username}" has been removed.` });
+      setUserToDelete(null);
     } catch (err: any) {
       toast({ title: 'Delete Failed', description: err?.message ?? 'Could not delete user.', variant: 'destructive' });
     } finally {
@@ -561,8 +607,16 @@ const Settings = () => {
       }
 
       if (section === 'Notifications') {
-        await settingsService.updateSettings({ send_cooldown_seconds: detectionSettings.send_cooldown_seconds });
+        // Popup preferences are personal/local — save them regardless of whether the
+        // server-side alert cooldown below is editable, so one never blocks the other.
         localStorage.setItem('notificationSettings', JSON.stringify(notificationSettings));
+
+        // Alert Cooldown is a global notification setting per the functional
+        // requirements — only admins and operators explicitly granted
+        // can_manage_detection may change it (backend returns 403 otherwise).
+        if (isAdmin || currentUser?.permissions?.can_manage_detection) {
+          await settingsService.updateSettings({ send_cooldown_seconds: detectionSettings.send_cooldown_seconds });
+        }
       }
 
       if (section === 'Preferences') {
@@ -602,7 +656,7 @@ const Settings = () => {
         description: result.detail ?? `User ${newOperator.name || newOperator.email} has been added.`,
       });
 
-      setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
+      setNewOperator({ name: '', username: '', email: '', password: '', role: 'tmc_operator' });
       setShowAddOperator(false);
       if (showManageUsers) {
         loadUsers();
@@ -901,13 +955,22 @@ const Settings = () => {
                   {isNaN(detectionSettings.send_cooldown_seconds) ? '3.0s' : `${detectionSettings.send_cooldown_seconds}s`}
                 </span></Label>
                 <p className="app-hint-text">Minimum seconds between violation alerts sent to the server. Prevents duplicate detections.</p>
-                <input
-                  type="range" min="1" max="30" step="0.5"
-                  value={isNaN(detectionSettings.send_cooldown_seconds) ? 3.0 : detectionSettings.send_cooldown_seconds}
-                  onChange={(e) => setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))}
-                  className="w-full accent-primary"
-                />
-                <div className="app-hint-text flex justify-between"><span>1s (Fast)</span><span>30s (Slow)</span></div>
+                {(isAdmin || currentUser?.permissions?.can_manage_detection) ? (
+                  <>
+                    <input
+                      type="range" min="1" max="30" step="0.5"
+                      value={isNaN(detectionSettings.send_cooldown_seconds) ? 3.0 : detectionSettings.send_cooldown_seconds}
+                      onChange={(e) => setDetectionSettings(s => ({ ...s, send_cooldown_seconds: parseFloat(e.target.value) }))}
+                      className="w-full accent-primary"
+                    />
+                    <div className="app-hint-text flex justify-between"><span>1s (Fast)</span><span>30s (Slow)</span></div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[13px] text-foreground">
+                    <Eye className="w-4 h-4 shrink-0 text-primary" />
+                    <span>Read-only. This is a global setting — contact an administrator to change it.</span>
+                  </div>
+                )}
               </div>
 
               <Button onClick={() => handleSave('Notifications')} disabled={savingSection === 'Notifications'}>
@@ -1410,6 +1473,7 @@ const Settings = () => {
                               const isAdminUser = role === 'admin';
                               const isOperatorUser = role === 'tmc_operator';
                               const isPermissionRowOpen = expandedPermissionUserId === u.id;
+                              const isEditRowOpen = editingUserId === u.id;
                               const operatorPermissions = getPermissionsForUser(u);
                               return (
                                 <Fragment key={u.id}>
@@ -1446,6 +1510,17 @@ const Settings = () => {
                                             <Button
                                               variant="ghost"
                                               size="sm"
+                                              className="h-7 w-7 p-0"
+                                              onClick={() => startEditUser(u)}
+                                              title={`Edit ${fullName}`}
+                                            >
+                                              <Pencil className="h-3.5 w-3.5" />
+                                            </Button>
+                                          )}
+                                          {isOperatorUser && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
                                               className="h-8 px-2 text-[12px]"
                                               onClick={() =>
                                                 setExpandedPermissionUserId((prev) =>
@@ -1466,7 +1541,7 @@ const Settings = () => {
                                             size="sm"
                                             className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                             disabled={deletingUserId === u.id}
-                                            onClick={() => handleDeleteUser(u.id, fullName)}
+                                            onClick={() => setUserToDelete({ id: u.id, name: fullName })}
                                             title={`Delete ${fullName}`}
                                           >
                                             <Trash2 className="h-3.5 w-3.5" />
@@ -1475,6 +1550,84 @@ const Settings = () => {
                                       )}
                                     </td>
                                   </tr>
+                                  {isOperatorUser && isEditRowOpen && (
+                                    <tr className="border-b border-border/50 bg-card/70">
+                                      <td colSpan={5} className="px-4 py-4">
+                                        <div className="space-y-4 rounded-lg border border-border bg-background px-4 py-4">
+                                          <div>
+                                            <p className="text-[12px] font-medium text-[#6B7280]">
+                                              Edit account details
+                                            </p>
+                                            <p className="app-hint-text mt-1">
+                                              Update this operator's name, username, and email. Password changes
+                                              are not available here — operators change their own password.
+                                              Changing the username changes what they sign in with.
+                                            </p>
+                                          </div>
+                                          <div className="grid gap-3 md:grid-cols-2">
+                                            <div className="space-y-1">
+                                              <Label htmlFor={`edit-first-name-${u.id}`}>First Name</Label>
+                                              <Input
+                                                id={`edit-first-name-${u.id}`}
+                                                value={editUserForm.first_name}
+                                                onChange={(e) =>
+                                                  setEditUserForm((prev) => ({ ...prev, first_name: e.target.value }))
+                                                }
+                                              />
+                                            </div>
+                                            <div className="space-y-1">
+                                              <Label htmlFor={`edit-last-name-${u.id}`}>Last Name</Label>
+                                              <Input
+                                                id={`edit-last-name-${u.id}`}
+                                                value={editUserForm.last_name}
+                                                onChange={(e) =>
+                                                  setEditUserForm((prev) => ({ ...prev, last_name: e.target.value }))
+                                                }
+                                              />
+                                            </div>
+                                            <div className="space-y-1">
+                                              <Label htmlFor={`edit-username-${u.id}`}>Username</Label>
+                                              <Input
+                                                id={`edit-username-${u.id}`}
+                                                value={editUserForm.username}
+                                                onChange={(e) =>
+                                                  setEditUserForm((prev) => ({ ...prev, username: e.target.value }))
+                                                }
+                                              />
+                                            </div>
+                                            <div className="space-y-1">
+                                              <Label htmlFor={`edit-email-${u.id}`}>Email</Label>
+                                              <Input
+                                                id={`edit-email-${u.id}`}
+                                                type="email"
+                                                value={editUserForm.email}
+                                                onChange={(e) =>
+                                                  setEditUserForm((prev) => ({ ...prev, email: e.target.value }))
+                                                }
+                                              />
+                                            </div>
+                                          </div>
+                                          <div className="flex justify-end gap-2">
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => setEditingUserId(null)}
+                                              disabled={savingUserEdit}
+                                            >
+                                              Cancel
+                                            </Button>
+                                            <Button
+                                              size="sm"
+                                              onClick={() => handleSaveUserEdit(u.id)}
+                                              disabled={savingUserEdit}
+                                            >
+                                              {savingUserEdit ? 'Saving...' : 'Save Changes'}
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
                                   {isOperatorUser && isPermissionRowOpen && (
                                     <tr className="border-b border-border/50 bg-card/70">
                                       <td colSpan={5} className="px-4 py-4">
@@ -1658,6 +1811,17 @@ const Settings = () => {
                         />
                       </div>
                       <div className="space-y-1 md:col-span-2">
+                        <Label htmlFor="op-username">Username (optional)</Label>
+                        <Input
+                          id="op-username"
+                          value={newOperator.username}
+                          onChange={(e) =>
+                            setNewOperator((prev) => ({ ...prev, username: e.target.value }))
+                          }
+                          placeholder="Leave blank to auto-generate from the full name"
+                        />
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
                         <Label htmlFor="op-password">Temporary Password</Label>
                         <div className="relative">
                           <Input
@@ -1701,7 +1865,7 @@ const Settings = () => {
                         size="sm"
                         onClick={() => {
                           setShowAddOperator(false);
-                          setNewOperator({ name: '', email: '', password: '', role: 'tmc_operator' });
+                          setNewOperator({ name: '', username: '', email: '', password: '', role: 'tmc_operator' });
                         }}
                       >
                         Cancel
@@ -1767,6 +1931,31 @@ const Settings = () => {
               }}
             >
               {cleanupRunning ? 'Running...' : 'Run Cleanup'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete User Confirmation Dialog */}
+      <AlertDialog
+        open={Boolean(userToDelete)}
+        onOpenChange={(open) => !open && !deletingUserId && setUserToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              {userToDelete ? `Delete user "${userToDelete.name}"? This cannot be undone.` : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingUserId)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteUser}
+              disabled={Boolean(deletingUserId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingUserId ? 'Deleting...' : 'Delete User'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

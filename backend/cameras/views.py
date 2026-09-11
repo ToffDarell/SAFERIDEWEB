@@ -27,6 +27,43 @@ class CameraViewSet(viewsets.ModelViewSet):
     queryset = Camera.objects.all()
     serializer_class = CameraSerializer
 
+    # Fields worth recording an old→new diff for in the Activity Log on update.
+    TRACKED_FIELDS = [
+        'name', 'location', 'stream_url', 'rtsp_url', 'status',
+        'active_lens', 'preferred_lens', 'supports_lens_switching',
+    ]
+
+    def perform_create(self, serializer):
+        camera = serializer.save()
+        try:
+            AdminNotification.create_for_camera_created(actor=self.request.user, camera=camera)
+        except Exception:  # noqa: BLE001 - never let logging block the request
+            pass
+
+    def perform_update(self, serializer):
+        old_instance = serializer.instance
+        old_snapshot = {field: getattr(old_instance, field, None) for field in self.TRACKED_FIELDS}
+        camera = serializer.save()
+        changes = {
+            field: (old_snapshot[field], getattr(camera, field, None))
+            for field in self.TRACKED_FIELDS
+            if old_snapshot[field] != getattr(camera, field, None)
+        }
+        try:
+            AdminNotification.create_for_camera_updated(actor=self.request.user, camera=camera, changes=changes)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def perform_destroy(self, instance):
+        actor = self.request.user
+        camera_id = instance.id
+        camera_name = instance.name
+        instance.delete()
+        try:
+            AdminNotification.create_for_camera_deleted(actor=actor, camera_id=camera_id, camera_name=camera_name)
+        except Exception:  # noqa: BLE001
+            pass
+
     def get_permissions(self):
         auth_header = self.request.headers.get("Authorization", "")
         is_api_key = auth_header.startswith("Api-Key ")
@@ -69,7 +106,15 @@ class CameraViewSet(viewsets.ModelViewSet):
 
 
 class SystemSettingsView(APIView):
-    """GET or PATCH the singleton system settings row."""
+    """GET or PATCH the singleton system settings row.
+
+    Per the project's functional requirements, TMC Operators can only manage
+    their own personal account settings (profile, password, display
+    preferences) — they cannot modify global system, security, or
+    notification settings. Every field on this endpoint (detection
+    thresholds, data retention, and Alert Cooldown alike) is therefore
+    restricted to admins / operators explicitly granted can_manage_detection.
+    """
 
     def get_permissions(self):
         auth_header = self.request.headers.get("Authorization", "")
@@ -93,8 +138,7 @@ class SystemSettingsView(APIView):
             user = request.user
             if user and user.is_authenticated:
                 profile = getattr(user, 'profile', None)
-                is_operator = profile and profile.role == 'tmc_operator'
-                is_admin_user = profile and profile.role == 'admin'
+                actor_is_admin = bool(profile and profile.role == 'admin')
 
                 # Detect which mode was applied
                 new = {**serializer.data, **request.data}
@@ -109,18 +153,20 @@ class SystemSettingsView(APIView):
                         mode_name = name
                         break
 
-                if is_operator:
-                    # Operator changed settings → notify admins
-                    msg = f"{user.get_full_name() or user.username} changed detection mode to {mode_name}" if mode_name \
-                        else f"{user.get_full_name() or user.username} updated detection settings (Custom)"
-                    AdminNotification.objects.create(
-                        notification_type='settings_changed',
-                        title='Detection Settings Updated',
-                        message=msg,
-                        actor=user,
-                    )
-                elif is_admin_user:
-                    # Admin changed settings → notify all operators
+                # Always record the change in the admin Activity Log, regardless of
+                # whether the actor is an operator or an admin.
+                actor_label = user.get_full_name() or user.username
+                activity_msg = f"{actor_label} changed detection mode to {mode_name}" if mode_name \
+                    else f"{actor_label} updated detection settings (Custom)"
+                AdminNotification.objects.create(
+                    notification_type='settings_changed',
+                    title='Detection Settings Updated',
+                    message=activity_msg,
+                    actor=user,
+                )
+
+                if actor_is_admin:
+                    # Admin changed settings → additionally notify all operators
                     msg = f"System administrator changed detection mode to {mode_name}" if mode_name \
                         else f"System administrator updated detection settings (Custom)"
                     from users.models import UserNotification

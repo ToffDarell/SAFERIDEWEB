@@ -182,23 +182,43 @@ def _encode_plate_crop(frame_bgr, bbox, quality=90):
     if x2 <= x1 or y2 <= y1:
         return None
 
+    # Small margin around the (sometimes tight / low-conf) YOLO box so the top
+    # and bottom of the characters are not clipped.
+    _mh = int(round((y2 - y1) * 0.10))
+    _mw = int(round((x2 - x1) * 0.06))
+    y1 = max(0, y1 - _mh)
+    y2 = min(frame_height, y2 + _mh)
+    x1 = max(0, x1 - _mw)
+    x2 = min(frame_width, x2 + _mw)
+
     crop = frame_bgr[y1:y2, x1:x2]
     if crop.size == 0:
         return None
 
-    # ── Enhancement pipeline ─────────────────────────────────────────────────
-    # 1. 2× upscale with bicubic interpolation.
-    #    INTER_CUBIC produces smoother results than INTER_LINEAR for small
-    #    plate crops and avoids the blocky artefacts of INTER_NEAREST.
-    h, w = crop.shape[:2]
-    crop = cv2.resize(crop, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+    # ── Enhancement pipeline (evidence legibility, not detail recovery) ──────
+    # 1. Edge-preserving denoise BEFORE upscaling, so the later steps don't
+    #    amplify RTSP / H.264 block noise the way the old strong unsharp did.
+    crop = cv2.bilateralFilter(crop, 5, 40, 40)
 
-    # 2. Mild unsharp mask: result = original + amount * (original - blurred)
-    #    sigma=1.0 targets character-edge frequencies without amplifying noise.
-    #    amount=0.5 keeps the sharpening subtle — enough to clean up soft edges
-    #    from the RTSP/JPEG compression chain without creating ringing artefacts.
-    _blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.0)
-    crop = cv2.addWeighted(crop, 1.5, _blurred, -0.5, 0)
+    # 2. Upscale with Lanczos — sharper on character edges than bicubic.
+    _upscale = max(1, min(4, int(os.getenv('PLATE_CROP_UPSCALE', '3'))))
+    h, w = crop.shape[:2]
+    crop = cv2.resize(crop, (w * _upscale, h * _upscale), interpolation=cv2.INTER_LANCZOS4)
+
+    # 3. CLAHE on the L channel — lifts legibility without blowing the white
+    #    plate to pure white / crushing the digits (the old global contrast
+    #    stretch from the aggressive unsharp did exactly that).
+    _lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    _l, _a, _b = cv2.split(_lab)
+    _l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(_l)
+    crop = cv2.cvtColor(cv2.merge((_l, _a, _b)), cv2.COLOR_LAB2BGR)
+
+    # 4. Very mild unsharp (amount 0.3, was 0.5). PLATE_CROP_SHARPEN=0 disables
+    #    it entirely for a clean, un-sharpened evidence crop.
+    _amount = max(0.0, min(1.0, float(os.getenv('PLATE_CROP_SHARPEN', '0.3'))))
+    if _amount > 0:
+        _blurred = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.2)
+        crop = cv2.addWeighted(crop, 1.0 + _amount, _blurred, -_amount, 0)
     # ─────────────────────────────────────────────────────────────────────────
 
     ok, encoded = cv2.imencode(
@@ -307,6 +327,7 @@ def _capture_worker(rtsp_url, frame_store, stop_event, reconnect_delay=2.0):
     frames from the RTSP using CAP_FFMPEG with a 1 frame buffer."""
 
     cap = None
+    was_connected = True  # first connect already confirmed + logged on main thread
     while not stop_event.is_set():
         if cap is None:
             cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
@@ -315,13 +336,20 @@ def _capture_worker(rtsp_url, frame_store, stop_event, reconnect_delay=2.0):
                 if cap is not None:
                     cap.release()
                 cap = None
+                print(f"[Camera] ✗ Failed to connect to camera — retrying in {reconnect_delay}s...")
                 stop_event.wait(reconnect_delay)
                 continue
 
         ret, frame = cap.read()
         if ret:
+            if not was_connected:
+                print("[Camera] ✓ Camera reconnected successfully")
+                was_connected = True
             frame_store.set(frame)
         else:
+            if was_connected:
+                print("[Camera] ⚠ Camera connection lost — attempting to reconnect...")
+                was_connected = False
             cap.release()
             cap = None
             stop_event.wait(reconnect_delay)
@@ -503,7 +531,7 @@ def main():
         print(f"YOLO will still run on {yolo_device} while EasyOCR stays on CPU.")
     print("-" * 60)
 
-    print("Connecting to RTSP stream...")
+    print(f"[Camera] Attempting to connect to camera at {rtsp_url.split('@')[-1] if '@' in rtsp_url else rtsp_url}...")
     cap = cv2.VideoCapture(rtsp_url)
 
     # FIX 1: release cap even on first failure
@@ -520,11 +548,12 @@ def main():
         update_camera_status(camera_id, 'inactive', '')
         return
 
-    print(f"✓ Connected! Frame size: {frame.shape[1]}x{frame.shape[0]}")
     # Print human-readable lens name based on the stream suffix in the RTSP URL
     stream_name = rtsp_url.rsplit('/', 1)[-1]
     lens_map = {'stream1': 'Wide HQ', 'stream2': 'Wide LQ', 'stream6': 'Tele HQ', 'stream7': 'Tele LQ'}
-    print(f"Lens           : {lens_map.get(stream_name, stream_name)}")
+    print("[Camera] ✓ Successfully connected to camera over network")
+    print(f"[Camera] ✓ Stream resolution: {frame.shape[1]}x{frame.shape[0]}")
+    print(f"[Camera] ✓ Lens: {lens_map.get(stream_name, stream_name)}")
     print("-" * 60)
     cap.release()
 

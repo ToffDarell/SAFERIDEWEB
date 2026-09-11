@@ -106,6 +106,19 @@ export const usersService = {
     return response.data;
   },
 
+  async updateOperatorProfile(
+    id: number,
+    data: { first_name?: string; last_name?: string; username?: string; email?: string }
+  ) {
+    try {
+      const response = await apiClient.patch(`/users/${id}/edit-profile/`, data);
+      return response.data;
+    } catch (err: any) {
+      const message = err?.response?.data?.error || "Could not update user.";
+      throw new Error(message);
+    }
+  },
+
   async updateMe(data: { first_name?: string; last_name?: string; email?: string }) {
     const response = await apiClient.patch("/users/me/", data);
     return response.data;

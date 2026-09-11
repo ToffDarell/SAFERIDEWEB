@@ -1,4 +1,7 @@
 from django.contrib.auth.models import User
+from django.contrib.auth.validators import UnicodeUsernameValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email as django_validate_email
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -90,7 +93,6 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in [
             "me",
             "preferences",
-            "update_me",
             "change_password",
             "dashboard",
             "notifications",
@@ -105,8 +107,42 @@ class UserViewSet(viewsets.ModelViewSet):
             return UserRegistrationSerializer
         return UserSerializer
 
-    @action(detail=False, methods=["get"])
+    def perform_destroy(self, instance):
+        actor = self.request.user
+        target_username = instance.username
+        target_email = instance.email
+        profile = getattr(instance, "profile", None)
+        target_role = profile.role if profile else None
+
+        instance.delete()
+
+        try:
+            AdminNotification.create_for_user_deleted(
+                actor=actor,
+                target_username=target_username,
+                target_email=target_email,
+                target_role=target_role,
+            )
+        except Exception:  # noqa: BLE001 - never let logging block a delete
+            pass
+
+    @action(detail=False, methods=["get", "patch"])
     def me(self, request):
+        if request.method.lower() == "patch":
+            user = request.user
+            profile = getattr(user, "profile", None)
+            user.first_name = request.data.get("first_name", user.first_name)
+            user.last_name = request.data.get("last_name", user.last_name)
+            user.email = request.data.get("email", user.email)
+            user.save()
+            if profile:
+                profile.phone = request.data.get("phone", profile.phone)
+                profile.organization = request.data.get("organization", profile.organization)
+                if "display_preferences" in request.data:
+                    profile.display_preferences = request.data.get("display_preferences")
+                profile.save()
+            return Response({"detail": "Profile updated."})
+
         return Response(self._build_user_payload(request.user))
 
     @action(detail=False, methods=["get", "patch"], url_path="preferences")
@@ -225,6 +261,11 @@ class UserViewSet(viewsets.ModelViewSet):
             user.is_staff = True
             user.save(update_fields=["is_staff"])
 
+        try:
+            AdminNotification.create_for_user_approved(actor=request.user, target_user=user)
+        except Exception:  # noqa: BLE001
+            pass
+
         return Response({"message": f"User {user.username} approved"})
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
@@ -239,6 +280,11 @@ class UserViewSet(viewsets.ModelViewSet):
         if user.is_staff and not user.is_superuser:
             user.is_staff = False
             user.save(update_fields=["is_staff"])
+
+        try:
+            AdminNotification.create_for_user_rejected(actor=request.user, target_user=user)
+        except Exception:  # noqa: BLE001
+            pass
 
         return Response({"message": f"User {user.username} rejected"})
 
@@ -271,12 +317,33 @@ class UserViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        username = name.replace(" ", "_").lower() if name else email.split("@")[0]
-        base_username = username
-        counter = 1
-        while User.objects.filter(username=username).exists():
-            username = f"{base_username}_{counter}"
-            counter += 1
+        username = request.data.get("username", "").strip()
+        if username:
+            if len(username) > 150:
+                return Response(
+                    {"error": "Username must be 150 characters or fewer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                UnicodeUsernameValidator()(username)
+            except DjangoValidationError:
+                return Response(
+                    {"error": "Username may only contain letters, digits, and @ . + - _"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if User.objects.filter(username__iexact=username).exists():
+                return Response(
+                    {"error": "A user with this username already exists"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            # No username given — derive one from the name (or email) and de-dupe.
+            username = name.replace(" ", "_").lower() if name else email.split("@")[0]
+            base_username = username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}_{counter}"
+                counter += 1
 
         name_parts = name.split(" ", 1)
         first_name = name_parts[0] if name_parts else ""
@@ -305,10 +372,116 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
+        try:
+            AdminNotification.create_for_user_account_created(
+                actor=request.user,
+                created_user=user,
+                role=requested_role,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
         return Response(
             {"detail": f"{requested_role.capitalize()} '{username}' created successfully."},
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=["patch"], url_path="edit-profile", permission_classes=[IsAdmin])
+    def edit_profile(self, request, pk=None):
+        """
+        Admin-only editing of an operator's basic account details
+        (name, username, email). Deliberately does NOT accept a password —
+        operators manage their own password via change-password, and admins
+        cannot set it for them. Admin accounts are not editable here (they
+        show as "Protected" in the UI).
+        """
+        user = self.get_object()
+        profile = getattr(user, "profile", None)
+
+        if not profile or profile.role != "tmc_operator":
+            return Response(
+                {"error": "Only TMC Operator accounts can be edited here."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = request.data
+        update_fields = []
+        changes = {}
+
+        if "first_name" in data:
+            new_first_name = str(data.get("first_name") or "").strip()
+            if new_first_name != user.first_name:
+                changes["first_name"] = (user.first_name, new_first_name)
+            user.first_name = new_first_name
+            update_fields.append("first_name")
+
+        if "last_name" in data:
+            new_last_name = str(data.get("last_name") or "").strip()
+            if new_last_name != user.last_name:
+                changes["last_name"] = (user.last_name, new_last_name)
+            user.last_name = new_last_name
+            update_fields.append("last_name")
+
+        if "username" in data:
+            new_username = str(data.get("username") or "").strip()
+            if not new_username:
+                return Response({"error": "Username must not be empty."}, status=status.HTTP_400_BAD_REQUEST)
+            if len(new_username) > 150:
+                return Response(
+                    {"error": "Username must be 150 characters or fewer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                UnicodeUsernameValidator()(new_username)
+            except DjangoValidationError:
+                return Response(
+                    {"error": "Username may only contain letters, digits, and @ . + - _"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if User.objects.filter(username__iexact=new_username).exclude(id=user.id).exists():
+                return Response(
+                    {"error": "A user with this username already exists."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_username != user.username:
+                changes["username"] = (user.username, new_username)
+            user.username = new_username
+            update_fields.append("username")
+
+        if "email" in data:
+            normalized_email = str(data.get("email") or "").strip().lower()
+            if not normalized_email:
+                return Response({"error": "Email must not be empty."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                django_validate_email(normalized_email)
+            except DjangoValidationError:
+                return Response({"error": "Enter a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
+            if User.objects.filter(email__iexact=normalized_email).exclude(id=user.id).exists():
+                return Response(
+                    {"error": "A user with this email already exists."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if normalized_email != user.email:
+                changes["email"] = (user.email, normalized_email)
+            user.email = normalized_email
+            update_fields.append("email")
+
+        if not update_fields:
+            return Response({"error": "Nothing to update."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.save(update_fields=update_fields)
+
+        if changes:
+            try:
+                AdminNotification.create_for_user_account_updated(
+                    actor=request.user,
+                    target_user=user,
+                    changes=changes,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        return Response(self.get_serializer(user).data)
 
     @action(
         detail=True,
@@ -333,7 +506,8 @@ class UserViewSet(viewsets.ModelViewSet):
         if not isinstance(request.data, dict):
             return Response({"error": "A permission object is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        updated_permissions = profile.get_effective_permissions()
+        old_permissions = profile.get_effective_permissions()
+        updated_permissions = dict(old_permissions)
         for key, value in request.data.items():
             if key in DEFAULT_OPERATOR_PERMISSIONS:
                 updated_permissions[key] = bool(value)
@@ -341,23 +515,17 @@ class UserViewSet(viewsets.ModelViewSet):
         profile.permissions = updated_permissions
         profile.save(update_fields=["permissions"])
 
-        return Response(profile.get_effective_permissions())
+        try:
+            AdminNotification.create_for_permissions_changed(
+                actor=request.user,
+                target_user=user,
+                old_permissions=old_permissions,
+                new_permissions=profile.get_effective_permissions(),
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
-    @action(detail=False, methods=["patch"], url_path="me")
-    def update_me(self, request):
-        user = request.user
-        profile = getattr(user, "profile", None)
-        user.first_name = request.data.get("first_name", user.first_name)
-        user.last_name = request.data.get("last_name", user.last_name)
-        user.email = request.data.get("email", user.email)
-        user.save()
-        if profile:
-            profile.phone = request.data.get("phone", profile.phone)
-            profile.organization = request.data.get("organization", profile.organization)
-            if "display_preferences" in request.data:
-                profile.display_preferences = request.data.get("display_preferences")
-            profile.save()
-        return Response({"detail": "Profile updated."})
+        return Response(profile.get_effective_permissions())
 
     @action(detail=False, methods=["get"], url_path="admin-notifications", permission_classes=[IsAdmin])
     def admin_notifications(self, request):

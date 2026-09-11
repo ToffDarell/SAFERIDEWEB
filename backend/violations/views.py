@@ -34,6 +34,7 @@ from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.units import pixels_to_EMU
+from openpyxl.worksheet.page import PageMargins
 
 from cameras.models import SystemSettings
 from .models import Violation
@@ -302,6 +303,28 @@ class ViolationViewSet(viewsets.ModelViewSet):
                 new_status=updated_violation.get_review_status_display(),
             )
 
+    def perform_destroy(self, instance):
+        actor = self.request.user
+        violation_id = instance.id
+        plate_number = instance.plate_number
+        classification = instance.get_classification_display()
+        camera_name = instance.camera.name if instance.camera else 'Unknown camera'
+        review_status = instance.get_review_status_display()
+
+        instance.delete()
+
+        try:
+            AdminNotification.create_for_violation_deleted(
+                actor=actor,
+                violation_id=violation_id,
+                plate_number=plate_number,
+                classification=classification,
+                camera_name=camera_name,
+                review_status=review_status,
+            )
+        except Exception:  # noqa: BLE001 - never let logging block a delete
+            pass
+
     @action(detail=True, methods=['patch'], url_path='correct-plate')
     def correct_plate(self, request, pk=None):
         if not (request.user.is_staff or getattr(getattr(request.user, 'profile', None), 'role', None) == 'admin' or has_user_permission(request.user, "can_correct_plate_number")):
@@ -359,6 +382,8 @@ class ViolationViewSet(viewsets.ModelViewSet):
         AdminNotification.create_for_evidence_view(
             actor=request.user,
             violation=violation,
+            downloaded=download_requested,
+            variant=variant,
         )
 
         evidence_name = Path(image_field.name).name
@@ -581,7 +606,13 @@ class ViolationExportView(APIView):
         worksheet = workbook.active
         worksheet.title = 'Violation Report'
         worksheet.sheet_view.showGridLines = False
-        worksheet.freeze_panes = 'A13'
+
+        workbook.properties.title = 'SafeRide Violation Report'
+        workbook.properties.subject = 'Motorcycle helmet-compliance violation report'
+        workbook.properties.creator = 'SafeRide AI'
+        workbook.properties.description = (
+            f'Generated {now.strftime("%B %d, %Y %I:%M %p")} — {qs.count()} record(s).'
+        )
 
         border_color = 'E2E8F0'
         accent_color = '3B82F6'
@@ -592,17 +623,28 @@ class ViolationExportView(APIView):
         thin_side = Side(style='thin', color=border_color)
         thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 
+        # Status → (fill, font color), mirroring the frontend's status badge colors
+        # so the sheet is scannable at a glance without opening the app.
+        status_colors = {
+            'pending': ('FEF3C7', '92400E'),
+            'reviewed': ('DBEAFE', '1E40AF'),
+            'resolved': ('DCFCE7', '166534'),
+            'compliant': ('DCFCE7', '166534'),
+            'violation': ('FEE2E2', '991B1B'),
+        }
+
         column_widths = {
-            'A': 8,
-            'B': 12,
-            'C': 14,
-            'D': 12,
-            'E': 18,
-            'F': 18,
+            'A': 6,
+            'B': 10,
+            'C': 13,
+            'D': 11,
+            'E': 16,
+            'F': 16,
             'G': 16,
-            'H': 16,
-            'I': 15,
-            'J': 16,
+            'H': 15,
+            'I': 17,
+            'J': 15,
+            'K': 16,
         }
         for column, width in column_widths.items():
             worksheet.column_dimensions[column].width = width
@@ -646,22 +688,22 @@ class ViolationExportView(APIView):
         worksheet.row_dimensions[7].height = 20
         worksheet.row_dimensions[8].height = 20
 
-        worksheet.merge_cells('A5:J5')
+        worksheet.merge_cells('A5:K5')
         worksheet['A5'] = 'Traffic Management Center (TMC)'
         worksheet['A5'].font = Font(name='Calibri', size=12, bold=True, color=accent_color)
         worksheet['A5'].alignment = Alignment(horizontal='center', vertical='center')
 
-        worksheet.merge_cells('A6:J6')
+        worksheet.merge_cells('A6:K6')
         worksheet['A6'] = 'SafeRide Violation Report'
         worksheet['A6'].font = Font(name='Calibri', size=18, bold=True, color=brand_color)
         worksheet['A6'].alignment = Alignment(horizontal='center', vertical='center')
 
-        worksheet.merge_cells('A7:J7')
+        worksheet.merge_cells('A7:K7')
         worksheet['A7'] = f'Generated: {now.strftime("%B %d, %Y %I:%M %p")}'
         worksheet['A7'].font = Font(name='Calibri', size=10, color=muted_color)
         worksheet['A7'].alignment = Alignment(horizontal='center', vertical='center')
 
-        worksheet.merge_cells('A8:J8')
+        worksheet.merge_cells('A8:K8')
         worksheet['A8'] = f'Total Records: {qs.count()}'
         worksheet['A8'].font = Font(name='Calibri', size=10, color=muted_color)
         worksheet['A8'].alignment = Alignment(horizontal='center', vertical='center')
@@ -694,17 +736,24 @@ class ViolationExportView(APIView):
 
         headers = [
             '#', 'ID', 'Date', 'Time', 'Camera', 'Classification',
-            'Plate Number', 'Detection Status', 'Confidence (%)', 'Review Status',
+            'Plate Number', 'Plate Corrected', 'Detection Status', 'Confidence (%)', 'Review Status',
         ]
+        # 1-based column indices for the status columns that get badge-style coloring below.
+        DETECTION_STATUS_COL = 9
+        CONFIDENCE_COL = 10
+        REVIEW_STATUS_COL = 11
 
         header_row = 14
+        worksheet.row_dimensions[header_row].height = 22
         for column_index, header in enumerate(headers, start=1):
             cell = worksheet.cell(row=header_row, column=column_index, value=header)
             cell.font = Font(name='Calibri', size=10, bold=True, color='FFFFFF')
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             cell.fill = PatternFill(fill_type='solid', fgColor=brand_color)
             cell.border = thin_border
 
+        detection_status_field_values = {}  # raw (unlocalized) status per row, for coloring
+        review_status_field_values = {}
         for row_index, violation in enumerate(qs, start=15):
             values = [
                 row_index - 14,
@@ -714,11 +763,15 @@ class ViolationExportView(APIView):
                 violation.camera.name if violation.camera else 'Unknown',
                 violation.get_classification_display(),
                 self._get_display_plate_number(violation),
+                'Yes' if self._is_plate_corrected(violation) else 'No',
                 violation.get_detection_status_display(),
                 float(f'{violation.confidence_score * 100:.1f}'),
                 violation.get_review_status_display(),
             ]
+            detection_status_field_values[row_index] = violation.detection_status
+            review_status_field_values[row_index] = violation.review_status or 'pending'
 
+            worksheet.row_dimensions[row_index].height = 18
             for column_index, value in enumerate(values, start=1):
                 cell = worksheet.cell(row=row_index, column=column_index, value=value)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
@@ -726,9 +779,41 @@ class ViolationExportView(APIView):
                 if row_index % 2 == 0:
                     cell.fill = PatternFill(fill_type='solid', fgColor=light_fill)
 
-            worksheet.cell(row=row_index, column=9).number_format = '0.0"%"'
+            worksheet.cell(row=row_index, column=CONFIDENCE_COL).number_format = '0.0"%"'
 
-        worksheet.auto_filter.ref = f'A{header_row}:J{max(header_row, qs.count() + 14)}'
+            # Badge-style coloring for the two status columns, matching the frontend's
+            # status colors so the report is scannable without opening the app.
+            detection_fill, detection_font = status_colors.get(
+                detection_status_field_values[row_index], (None, None)
+            )
+            if detection_fill:
+                cell = worksheet.cell(row=row_index, column=DETECTION_STATUS_COL)
+                cell.fill = PatternFill(fill_type='solid', fgColor=detection_fill)
+                cell.font = Font(name='Calibri', size=10, bold=True, color=detection_font)
+
+            review_fill, review_font = status_colors.get(
+                review_status_field_values[row_index], (None, None)
+            )
+            if review_fill:
+                cell = worksheet.cell(row=row_index, column=REVIEW_STATUS_COL)
+                cell.fill = PatternFill(fill_type='solid', fgColor=review_fill)
+                cell.font = Font(name='Calibri', size=10, bold=True, color=review_font)
+
+        last_data_row = max(header_row, qs.count() + header_row)
+        worksheet.auto_filter.ref = f'A{header_row}:K{last_data_row}'
+
+        # Keep the whole title/summary/header block pinned at the top while scrolling
+        # through potentially hundreds of data rows below it.
+        worksheet.freeze_panes = f'A{header_row + 1}'
+
+        # Print setup — this is a "Report", so make it print cleanly: landscape,
+        # fit to one page wide, and repeat the header block on every printed page.
+        worksheet.page_setup.orientation = 'landscape'
+        worksheet.page_setup.fitToWidth = 1
+        worksheet.page_setup.fitToHeight = 0
+        worksheet.sheet_properties.pageSetUpPr.fitToPage = True
+        worksheet.print_title_rows = f'1:{header_row}'
+        worksheet.page_margins = PageMargins(left=0.3, right=0.3, top=0.4, bottom=0.4)
 
         output = io.BytesIO()
         workbook.save(output)

@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.auth_security import LoginAttemptTracker
-from users.models import UserProfile, get_default_operator_permissions
+from users.models import AdminNotification, UserProfile, get_default_operator_permissions
 from users.recaptcha import validate_recaptcha_token
 
 User = get_user_model()
@@ -117,6 +117,13 @@ class GoogleAuthCallback(APIView):
 
             refresh = RefreshToken.for_user(user)
             tracker.reset()
+
+            # Record the successful sign-in in the admin Activity Log. Never let a
+            # logging failure block the login itself.
+            try:
+                AdminNotification.create_for_user_login(user=user, method="google")
+            except Exception:  # noqa: BLE001
+                pass
 
             return Response({
                 "access": str(refresh.access_token),

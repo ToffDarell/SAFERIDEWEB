@@ -10,6 +10,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.views import APIView
 
 from .auth_security import LoginAttemptTracker
+from .models import AdminNotification
 from .recaptcha import validate_recaptcha_token
 from .throttles import LoginBurstRateThrottle, LoginSustainedRateThrottle
 
@@ -42,6 +43,14 @@ class ApprovedTokenObtainPairSerializer(TokenObtainPairSerializer):
             raise
 
         tracker.reset()
+
+        # Record the successful sign-in in the admin Activity Log. Never let a
+        # logging failure block the login itself.
+        try:
+            AdminNotification.create_for_user_login(user=self.user, method="password")
+        except Exception:  # noqa: BLE001
+            pass
+
         return data
 
     @classmethod
@@ -64,6 +73,7 @@ class ApprovedLogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        actor = request.user
         refresh_token = str(request.data.get("refresh", "")).strip()
         auth_header = request.headers.get("Authorization", "")
 
@@ -88,6 +98,14 @@ class ApprovedLogoutView(APIView):
             pass
 
         django_logout(request)
+
+        # Record the sign-out in the admin Activity Log. django_logout() above
+        # already flushed request.user to AnonymousUser, so use the captured actor.
+        try:
+            AdminNotification.create_for_user_logout(user=actor)
+        except Exception:  # noqa: BLE001
+            pass
+
         return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
 
 
