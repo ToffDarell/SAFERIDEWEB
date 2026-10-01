@@ -34,6 +34,24 @@ function getAuthHeaders() {
   return headers;
 }
 
+// Shown in place of a restricted tab's real content when a user reaches it directly
+// (e.g. by typing ?tab=... in the URL) without the permission that tab requires.
+const AccessDeniedNotice = ({ label }: { label: string }) => (
+  <Card className="bg-card border-border">
+    <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+        <Lock className="h-6 w-6 text-destructive" />
+      </div>
+      <div className="space-y-1">
+        <p className="text-base font-semibold text-foreground">Access Denied</p>
+        <p className="app-hint-text max-w-sm">
+          You don't have permission to view {label}. Contact an administrator if you believe this is a mistake.
+        </p>
+      </div>
+    </CardContent>
+  </Card>
+);
+
 const Settings = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -70,7 +88,6 @@ const Settings = () => {
     conf_helmet: 0.60,
     conf_license_plate: 0.60,
   });
-  const [dataRetentionEnabled, setDataRetentionEnabled] = useState(true);
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
   const [cleanupRunning, setCleanupRunning] = useState(false);
   const [loadingDetection, setLoadingDetection] = useState(true);
@@ -185,17 +202,10 @@ const Settings = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (activeTab === 'detection') {
+    if (activeTab === 'detection' && (isAdmin || currentUser?.permissions?.can_manage_detection)) {
       loadSystemSettings();
     }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (!isAdmin && (activeTab === 'users' || activeTab === 'activity')) {
-      setActiveTab('profile');
-      setSearchParams({ tab: 'profile' });
-    }
-  }, [activeTab, isAdmin, setSearchParams]);
+  }, [activeTab, isAdmin, currentUser]);
 
 
 
@@ -242,11 +252,10 @@ const Settings = () => {
     try {
       const data = await settingsService.getSettings();
       const retentionDays = Number(data.data_retention_days ?? 90);
-      const retentionEnabled = retentionDays > 0;
       const newSettings = {
         confidence_threshold:  data.confidence_threshold  ?? 0.60,
         send_cooldown_seconds: data.send_cooldown_seconds ?? 3.0,
-        data_retention_days:   retentionEnabled ? retentionDays : 90,
+        data_retention_days:   retentionDays > 0 ? retentionDays : 90,
         ocr_confidence:        data.ocr_confidence        ?? 0.20,
         conf_no_helmet:        data.conf_no_helmet         ?? 0.55,
         conf_nutshell:         data.conf_nutshell          ?? 0.65,
@@ -254,7 +263,6 @@ const Settings = () => {
         conf_license_plate:    data.conf_license_plate     ?? 0.60,
       };
       setDetectionSettings(newSettings);
-      setDataRetentionEnabled(retentionEnabled);
       // Only detect preset on first load; skip on subsequent calls to preserve user's selection
       if (!settingsLoadedRef.current) {
         const matched = (['balanced', 'sensitive', 'strict'] as const).find(key =>
@@ -268,18 +276,6 @@ const Settings = () => {
     } catch {} finally {
       setLoadingDetection(false);
     }
-  };
-
-  const applyPreset = () => {
-    const mode = pendingModeRef.current;
-    if (!mode) return;
-    const preset = DETECTION_PRESETS[mode];
-    setDetectionSettings(s => ({ ...s, ...preset.values }));
-    setDetectionMode(mode);
-    toast({ title: `Detection preset applied: ${preset.label}` });
-    setPresetDialogOpen(false);
-    setPendingMode(null);
-    pendingModeRef.current = null;
   };
 
   // ── Manage Users helpers ──────────────────────────────────────────────────────
@@ -602,7 +598,7 @@ const Settings = () => {
 
       if (section === 'Security') {
         await settingsService.updateSettings({
-          data_retention_days: dataRetentionEnabled ? detectionSettings.data_retention_days : 0,
+          data_retention_days: detectionSettings.data_retention_days,
         });
       }
 
@@ -829,26 +825,14 @@ const Settings = () => {
                 <>
                   <Separator />
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="data-retention-enabled">Automatic Cleanup</Label>
-                        <p className="app-hint-text">Turn this off to keep violation records indefinitely.</p>
-                      </div>
-                      <Switch
-                        id="data-retention-enabled"
-                        checked={dataRetentionEnabled}
-                        onCheckedChange={setDataRetentionEnabled}
-                      />
-                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="data-retention">Data Retention (days)</Label>
-                      <p className="app-hint-text">How many days to keep violation records in the database before auto-deletion.</p>
+                      <p className="app-hint-text">Violation records older than this many days become eligible for deletion when you run cleanup manually below. Nothing is deleted automatically.</p>
                       <Input
                         id="data-retention"
                         type="number"
                         min="7"
                         max="365"
-                        disabled={!dataRetentionEnabled}
                         value={isNaN(detectionSettings.data_retention_days) ? 90 : detectionSettings.data_retention_days}
                         onChange={(e) => setDetectionSettings(s => ({ ...s, data_retention_days: Number(e.target.value) }))}
                       />
@@ -861,7 +845,6 @@ const Settings = () => {
                         type="button"
                         variant="outline"
                         onClick={() => setCleanupDialogOpen(true)}
-                        disabled={!dataRetentionEnabled}
                       >
                         Run Cleanup Now
                       </Button>
@@ -1055,6 +1038,9 @@ const Settings = () => {
 
         {/* Detection Settings */}
         <TabsContent value="detection" className="space-y-6">
+          {!(isAdmin || currentUser?.permissions?.can_manage_detection) ? (
+            <AccessDeniedNotice label="AI detection configuration" />
+          ) : (
           <Card className="bg-card border-border">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -1225,10 +1211,13 @@ const Settings = () => {
             </CardContent>
             )}
           </Card>
+          )}
         </TabsContent>
 
-        {isAdmin && (
-          <TabsContent value="activity" className="space-y-6">
+        <TabsContent value="activity" className="space-y-6">
+          {!isAdmin ? (
+            <AccessDeniedNotice label="the Activity Log" />
+          ) : (
             <Card className="bg-card border-border">
               <CardHeader>
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -1342,12 +1331,14 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+          )}
+        </TabsContent>
 
         {/* Users Management - Admin Only */}
-        {isAdmin && (
-          <TabsContent value="users" className="space-y-6">
+        <TabsContent value="users" className="space-y-6">
+          {!isAdmin ? (
+            <AccessDeniedNotice label="Manage Users" />
+          ) : (
             <Card className="bg-card border-border">
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -1878,8 +1869,8 @@ const Settings = () => {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        )}
+          )}
+        </TabsContent>
       </Tabs>
 
       {!isAdmin && (
